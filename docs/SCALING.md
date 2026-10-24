@@ -48,21 +48,33 @@ which at a lunch rush is the bulk of database load. With it, Postgres sees only 
 
 ## Measured
 
-The CI load test (500 registers, full sales, 2-minute peak) on a GitHub-hosted runner, where the whole
+The CI load test (500 registers, each signing in with an HttpOnly session cookie, then full sales with
+request guards and auth checks on every call; 2-minute peak) on a GitHub-hosted runner, where the whole
 stack *and* the load generator share one small VM:
 
 | | |
 |---|---|
-| Sales completed | 8,410 (48 sales/s, about 4x the estimate above) |
-| Requests | 46,831 (269/s) |
+| Sales completed | 9,293 (45 sales/s, about 4x the estimate above) |
+| Requests | 51,923 (253/s) |
 | Failed requests | 0.00% |
-| p50 / p95 / p99: menu | 1 / 5 / 15 ms |
-| p50 / p95 / p99: quote | 1 / 5 / 12 ms |
-| p50 / p95 / p99: create order | 6 / 20 / 38 ms |
-| p50 / p95 / p99: pay | 4 / 13 / 23 ms |
+| p50 / p95 / p99: sign-in (bcrypt) | 59 / 81 / 346 ms |
+| p50 / p95 / p99: menu | 1 / 2 / 5 ms |
+| p50 / p95 / p99: quote | 1 / 2 / 4 ms |
+| p50 / p95 / p99: create order | 4 / 10 / 17 ms |
+| p50 / p95 / p99: pay | 3 / 6 / 12 ms |
 
-Writes are the slowest calls, as expected, and still well under the 600 ms budget. Every push re-runs
-this test, and the numbers are on each CI run's summary page.
+Writes are the slowest checkout calls, as expected, and far under the 600 ms budget. Sign-in is slower by
+design (bcrypt) but happens once per shift. Checking the session cookie on every request costs no
+lookup: it's an HMAC check in memory. Every push re-runs this test, and the numbers are on each CI run's
+summary page.
+
+Two problems this test caught along the way, both fixed:
+
+- **Sign-in storms.** An early PIN check held a row lock during bcrypt; 500 registers signing in at once
+  would have queued on it while holding database connections. PINs are now checked without a lock and
+  failures counted with one atomic `UPDATE`.
+- **Sessions must outlive one sale.** The first authenticated run failed 93% of requests because the load
+  generator dropped cookies between sales; registers now keep their cookie all shift, as browsers do.
 
 ## How writes are kept safe and cheap
 
