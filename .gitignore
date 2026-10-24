@@ -16,3 +16,5 @@ Thumbs.db
 # Local env
 .env
 *.log
+e2e/node_modules/
+e2e/screenshots/

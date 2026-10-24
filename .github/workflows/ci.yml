@@ -115,6 +115,21 @@ jobs:
           curl -fsS -b cookies.txt "$menu" | grep -q 'Soft Pretzel'
           echo "API replicas running: $(docker compose ps api --status running -q | wc -l)"
 
+      - name: Browser walkthrough with screenshots
+        working-directory: e2e
+        run: |
+          npm install --no-save --no-package-lock playwright@1.49.1
+          npx playwright install --with-deps chromium
+          node register-walkthrough.mjs
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: register-screenshots
+          path: e2e/screenshots/
+          if-no-files-found: ignore
+
       - name: Load test (500 registers)
         run: |
           chmod 777 load/results
