@@ -115,13 +115,16 @@ paths:
       tags: [Auth]
       operationId: logout
       summary: Sign out
+      # Error responses are problem+json like everywhere else, but are described without a
+      # media type here: the success response has no body, and listing only
+      # application/problem+json would make the server refuse clients that accept JSON.
       responses:
         '204':
           description: Signed out; the cookie is cleared.
         '401':
-          $ref: '#/components/responses/Unauthorized'
+          description: Not signed in (problem+json).
         '403':
-          $ref: '#/components/responses/Forbidden'
+          description: Missing the X-Kiosk-Register header (problem+json).
 
   /auth/me:
     get:
