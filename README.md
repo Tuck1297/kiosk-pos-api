@@ -11,22 +11,34 @@ register's TypeScript types. A contract change that either side doesn't honor fa
 
 ## Quick start
 
-Requires Java 21, Maven 3.9+, Node 22 and Docker.
+Requires only Docker.
 
 ```bash
-docker compose up -d                                   # Postgres 16 on localhost:5432
-mvn spring-boot:run -Dspring-boot.run.profiles=local  # migrates schema + loads demo data
-
-cd web && npm install && npm run dev                  # register on http://localhost:5173
+docker compose up -d --build
 ```
 
-The register proxies `/v1` to the API on `:8080`. In the demo card reader, the 4242 card approves
-and the 0002 card declines.
-
-Run the API tests (they start their own Postgres via Testcontainers):
+Open **http://localhost:8080** for the register; the API is at `http://localhost:8080/v1`. This starts
+everything: Postgres, PgBouncer, Redis, 3 API replicas and an nginx gateway that serves the register and
+load-balances the API. Demo locations and menu load automatically. In the demo card reader, the 4242 card
+approves and the 0002 card declines.
 
 ```bash
-mvn verify
+docker compose up -d --scale api=6                 # more API replicas
+docker compose --profile loadtest run --rm k6      # 500 simulated registers for 3 minutes
+docker compose down -v                             # stop and delete data
+```
+
+How it handles 500 registers, and why writes stay on one Postgres primary: [docs/SCALING.md](docs/SCALING.md).
+
+### Developing without containers for the app
+
+Requires Java 21, Maven 3.9+ and Node 22.
+
+```bash
+docker compose up -d postgres redis                   # just the infrastructure
+mvn spring-boot:run -Dspring-boot.run.profiles=local  # API on :8080, migrates + loads demo data
+cd web && npm install && npm run dev                  # register on :5173, proxies /v1 to :8080
+mvn verify                                            # tests (start their own Postgres + Redis)
 ```
 
 ## The register (`web/`)
@@ -67,6 +79,9 @@ A guided checkout for the cashier at the window: **Items → Review → Payment*
 
 - **One pricing path.** `PricingService` is the only code that computes prices and tax; the quote and
   order endpoints both call it, so a quote can never disagree with the order it becomes.
+- **Cached reads, authoritative writes.** Menu, location and tax snapshots are cached in Redis for
+  quotes and menu loads; creating an order re-reads them from Postgres, so a stale cache can't affect a
+  charge. If Redis is down, reads fall back to Postgres.
 - **Tax rates in their own table** (`tax_rate`, in basis points: 650 = 6.50%), shared by every location
   in a jurisdiction. Each order snapshots the rate it was priced with, so changing a rate never alters
   past orders.
@@ -95,13 +110,17 @@ src/main/java/.../kioskpos/
   common/       errors (problem+json), mappers, pagination cursor
 src/main/resources/db/migration/   Flyway schema (V1 init, V2 tax rates, V3 idempotency)
 src/main/resources/db/seed/        demo data, local profile only
-web/                               cashier register (React + Mantine, Vite)
+web/                               cashier register (React + Mantine, Vite) + gateway image (nginx)
+compose.yaml, Dockerfile           the whole stack in one file
+deploy/pgbouncer/                  connection pooler config
+load/checkout.js                   k6 load test: 500 registers doing full sales
+docs/SCALING.md                    capacity math and scaling design
 ```
 
 ## Roadmap
 
 1. Cancel/void and the kitchen status flow (`PUT /orders/{id}/status`)
 2. JWT auth (`GUEST_APP` / `STAFF` roles)
-3. Expire old idempotency keys on a schedule
-4. PHP client SDK
-5. CI: SBOM (CycloneDX) and open-source license checks
+3. PHP client SDK
+4. CI: SBOM (CycloneDX) and open-source license checks
+5. Scaling next steps (read replica, Redis HA, partitioning): see [docs/SCALING.md](docs/SCALING.md)

@@ -12,6 +12,7 @@ import io.github.tuck1297.kioskpos.api.model.OrderStatus;
 import io.github.tuck1297.kioskpos.common.NotFoundException;
 import io.github.tuck1297.kioskpos.idempotency.IdempotencyStore;
 import io.github.tuck1297.kioskpos.idempotency.RequestFingerprint;
+import io.github.tuck1297.kioskpos.menu.MenuCatalog;
 import io.github.tuck1297.kioskpos.pricing.PricingService;
 import io.github.tuck1297.kioskpos.pricing.PricingService.PricedLine;
 import io.github.tuck1297.kioskpos.pricing.PricingService.PricedOrder;
@@ -30,14 +31,16 @@ public class OrderService {
 
     private static final String CREATE_SCOPE = "createOrder";
 
+    private final MenuCatalog catalog;
     private final PricingService pricing;
     private final OrderRepository orders;
     private final IdempotencyStore idempotency;
     private final JdbcTemplate jdbc;
     private final EntityManager em;
 
-    public OrderService(PricingService pricing, OrderRepository orders, IdempotencyStore idempotency,
-                        JdbcTemplate jdbc, EntityManager em) {
+    public OrderService(MenuCatalog catalog, PricingService pricing, OrderRepository orders,
+                        IdempotencyStore idempotency, JdbcTemplate jdbc, EntityManager em) {
+        this.catalog = catalog;
         this.pricing = pricing;
         this.orders = orders;
         this.idempotency = idempotency;
@@ -58,7 +61,8 @@ public class OrderService {
             return toApi(load(earlier.get().resourceId()));
         }
 
-        PricedOrder priced = pricing.price(request.getLocationId(), request.getLines());
+        // Price from the database, never the cache: this is the write that takes money.
+        PricedOrder priced = pricing.price(catalog.fresh(request.getLocationId()), request.getLines());
         Integer orderNumber = jdbc.queryForObject("""
                 UPDATE location SET next_order_number = next_order_number + 1
                 WHERE id = ?
@@ -67,11 +71,11 @@ public class OrderService {
         OffsetDateTime now = OffsetDateTime.now();
         OrderEntity order = new OrderEntity(UUID.randomUUID(), request.getLocationId(), orderNumber,
                 request.getChannel().getValue(), blankToNull(request.getGuestName()), priced.currency(),
-                priced.subtotalCents(), priced.taxRate().getRateBps(), priced.taxCents(), priced.totalCents(), now);
+                priced.subtotalCents(), priced.taxRate().rateBps(), priced.taxCents(), priced.totalCents(), now);
         short lineNo = 1;
         for (PricedLine line : priced.lines()) {
-            order.addLine(new OrderLineEntity(UUID.randomUUID(), lineNo++, line.item().getId(), line.item().getSku(),
-                    line.item().getName(), line.unitPriceCents(), line.quantity(), line.lineTotalCents(), line.note()));
+            order.addLine(new OrderLineEntity(UUID.randomUUID(), lineNo++, line.item().id(), line.item().sku(),
+                    line.item().name(), line.unitPriceCents(), line.quantity(), line.lineTotalCents(), line.note()));
         }
         em.persist(order);
         em.flush();

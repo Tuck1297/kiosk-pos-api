@@ -6,8 +6,9 @@ import io.github.tuck1297.kioskpos.api.model.MenuItem;
 import io.github.tuck1297.kioskpos.api.model.Money;
 import io.github.tuck1297.kioskpos.api.model.TaxRate;
 import io.github.tuck1297.kioskpos.location.LocationEntity;
-import io.github.tuck1297.kioskpos.menu.MenuItemEntity;
+import io.github.tuck1297.kioskpos.menu.MenuSnapshot;
 import io.github.tuck1297.kioskpos.tax.TaxRateEntity;
+import java.util.UUID;
 
 /** Entity → generated API model conversions shared by several controllers and services. */
 public final class ApiMappers {
@@ -38,17 +39,36 @@ public final class ApiMappers {
                 .active(e.isActive());
     }
 
-    public static MenuItem menuItem(MenuItemEntity e, String currency) {
+    public static TaxRate taxRate(MenuSnapshot.TaxSnapshot t) {
+        return new TaxRate()
+                .id(t.id())
+                .code(t.code())
+                .name(t.name())
+                .rateBps(t.rateBps());
+    }
+
+    public static Location location(MenuSnapshot m) {
+        return new Location()
+                .id(m.locationId())
+                .name(m.locationName())
+                .parkCode(m.parkCode())
+                .timezone(m.timezone())
+                .taxRate(taxRate(m.taxRate()))
+                .currency(m.currency())
+                .active(m.active());
+    }
+
+    public static MenuItem menuItem(MenuSnapshot.ItemSnapshot i, UUID locationId, String currency) {
         return new MenuItem()
-                .id(e.getId())
-                .locationId(e.getLocationId())
-                .sku(e.getSku())
-                .name(e.getName())
-                .description(e.getDescription())
-                .category(MenuCategory.fromValue(e.getCategory()))
-                .price(money(e.getPriceCents(), currency))
-                .available(e.isAvailable())
-                .updatedAt(e.getUpdatedAt());
+                .id(i.id())
+                .locationId(locationId)
+                .sku(i.sku())
+                .name(i.name())
+                .description(i.description())
+                .category(MenuCategory.fromValue(i.category()))
+                .price(money(i.priceCents(), currency))
+                .available(i.available())
+                .updatedAt(i.updatedAt());
     }
 
     public static String blankToNull(String s) {

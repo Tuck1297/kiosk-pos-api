@@ -9,6 +9,7 @@ import io.github.tuck1297.kioskpos.api.model.OrderQuote;
 import io.github.tuck1297.kioskpos.api.model.QuoteLine;
 import io.github.tuck1297.kioskpos.api.model.QuoteRequest;
 import io.github.tuck1297.kioskpos.common.ApiMappers;
+import io.github.tuck1297.kioskpos.menu.MenuCatalog;
 import io.github.tuck1297.kioskpos.order.OrderService;
 import io.github.tuck1297.kioskpos.pricing.PricingService;
 import io.github.tuck1297.kioskpos.pricing.PricingService.PricedOrder;
@@ -26,25 +27,28 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class OrdersController implements OrdersApi {
 
+    private final MenuCatalog catalog;
     private final PricingService pricing;
     private final OrderService orders;
 
-    public OrdersController(PricingService pricing, OrderService orders) {
+    public OrdersController(MenuCatalog catalog, PricingService pricing, OrderService orders) {
+        this.catalog = catalog;
         this.pricing = pricing;
         this.orders = orders;
     }
 
+    /** Priced from the cached menu: the hottest read path, kept off the database. */
     @Override
     public ResponseEntity<OrderQuote> quoteOrder(QuoteRequest quoteRequest) {
-        PricedOrder priced = pricing.price(quoteRequest.getLocationId(), quoteRequest.getLines());
+        PricedOrder priced = pricing.price(catalog.cached(quoteRequest.getLocationId()), quoteRequest.getLines());
         String currency = priced.currency();
         return ResponseEntity.ok(new OrderQuote()
-                .locationId(priced.location().getId())
+                .locationId(priced.menu().locationId())
                 .lines(priced.lines().stream()
                         .map(l -> new QuoteLine()
-                                .menuItemId(l.item().getId())
-                                .sku(l.item().getSku())
-                                .name(l.item().getName())
+                                .menuItemId(l.item().id())
+                                .sku(l.item().sku())
+                                .name(l.item().name())
                                 .quantity(l.quantity())
                                 .unitPrice(money(l.unitPriceCents(), currency))
                                 .lineTotal(money(l.lineTotalCents(), currency))

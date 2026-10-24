@@ -1,0 +1,143 @@
+# The whole Kiosk POS stack. One command:
+#
+#   docker compose up -d --build
+#
+# then open http://localhost:8080 (register) — the API is at http://localhost:8080/v1.
+#
+#   gateway (nginx) ── serves the register UI, load-balances /v1 across API replicas
+#   api x3          ── stateless Spring Boot replicas (scale with API_REPLICAS or --scale api=N)
+#   redis           ── read cache for menu, location and tax snapshots
+#   pgbouncer       ── pools the replicas' database connections in front of Postgres
+#   postgres        ── single primary: the source of truth for every write
+#
+# Load test with 500 simulated registers:
+#   docker compose --profile loadtest run --rm k6
+#
+# Demo credentials are for local use only; override POSTGRES_PASSWORD (and
+# deploy/pgbouncer/userlist.txt) anywhere real.
+
+name: kiosk-pos
+
+x-db-password: &db-password ${POSTGRES_PASSWORD:-kiosk}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kiosk_pos
+      POSTGRES_USER: kiosk
+      POSTGRES_PASSWORD: *db-password
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - wal_compression=on
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - log_min_duration_statement=250
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kiosk -d kiosk_pos"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:5432:5432"   # for local tools and `mvn spring-boot:run`; not needed by the stack
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.24.1-p1
+    restart: unless-stopped
+    volumes:
+      - ./deploy/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./deploy/pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    # A pure cache: no persistence, evict least-recently-used keys when full.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:6379:6379"   # for local `mvn spring-boot:run`; not needed by the stack
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kiosk-pos-api:local
+    restart: unless-stopped
+    deploy:
+      replicas: ${API_REPLICAS:-3}
+      resources:
+        limits:
+          memory: 768M
+    environment:
+      # Application traffic goes through PgBouncer (transaction pooling). Server-side
+      # prepared statements are turned off because they don't survive connection swaps.
+      DB_URL: jdbc:postgresql://pgbouncer:5432/kiosk_pos?prepareThreshold=0
+      DB_USER: kiosk
+      DB_PASSWORD: *db-password
+      DB_POOL_SIZE: "20"
+      # Migrations connect to Postgres directly: Flyway's lock is session-level, which
+      # transaction pooling can't hold. Replicas starting together queue on that lock.
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/kiosk_pos
+      SPRING_FLYWAY_USER: kiosk
+      SPRING_FLYWAY_PASSWORD: *db-password
+      # Load the demo locations and menu so the register works out of the box.
+      SPRING_FLYWAY_LOCATIONS: classpath:db/migration,classpath:db/seed
+      REDIS_HOST: redis
+      MENU_CACHE_TTL: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    image: kiosk-pos-gateway:local
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  k6:
+    image: grafana/k6:latest
+    profiles: ["loadtest"]
+    user: "0:0"   # so it can write results into ./load/results on any host
+    volumes:
+      - ./load:/scripts:ro
+      - ./load/results:/results
+    environment:
+      BASE_URL: http://gateway
+      REGISTERS: ${REGISTERS:-500}
+      DURATION: ${DURATION:-3m}
+      RESULTS_DIR: /results
+    command: ["run", "/scripts/checkout.js"]
+    depends_on:
+      gateway:
+        condition: service_healthy
+
+volumes:
+  pgdata:

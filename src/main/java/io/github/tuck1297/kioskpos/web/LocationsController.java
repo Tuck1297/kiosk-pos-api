@@ -5,9 +5,9 @@ import io.github.tuck1297.kioskpos.api.model.Location;
 import io.github.tuck1297.kioskpos.api.model.LocationPage;
 import io.github.tuck1297.kioskpos.common.ApiMappers;
 import io.github.tuck1297.kioskpos.common.Cursor;
-import io.github.tuck1297.kioskpos.common.NotFoundException;
 import io.github.tuck1297.kioskpos.location.LocationEntity;
 import io.github.tuck1297.kioskpos.location.LocationRepository;
+import io.github.tuck1297.kioskpos.menu.MenuCatalog;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Limit;
@@ -20,9 +20,11 @@ public class LocationsController implements LocationsApi {
     private static final int DEFAULT_LIMIT = 25;
 
     private final LocationRepository locations;
+    private final MenuCatalog catalog;
 
-    public LocationsController(LocationRepository locations) {
+    public LocationsController(LocationRepository locations, MenuCatalog catalog) {
         this.locations = locations;
+        this.catalog = catalog;
     }
 
     @Override
@@ -43,12 +45,10 @@ public class LocationsController implements LocationsApi {
                 .nextCursor(nextCursor));
     }
 
+    /** Every register loads its location on start-up, so this is served from the cache. */
     @Override
     public ResponseEntity<Location> getLocation(UUID locationId) {
-        return locations.findById(locationId)
-                .map(LocationsController::toApi)
-                .map(ResponseEntity::ok)
-                .orElseThrow(() -> new NotFoundException("Location", locationId));
+        return ResponseEntity.ok(ApiMappers.location(catalog.cached(locationId)));
     }
 
     static Location toApi(LocationEntity e) {

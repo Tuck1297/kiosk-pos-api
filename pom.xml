@@ -63,6 +63,16 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Read cache: menu, location and tax snapshots in Redis -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
         <!-- Used by the generated API interfaces -->
         <dependency>
             <groupId>jakarta.annotation</groupId>

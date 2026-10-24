@@ -83,3 +83,58 @@ jobs:
         run: |
           body=$( (grep -E 'error|Error|ERR!' build.log || tail -40 build.log) | head -60 | sed -e 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
           echo "::error title=Web build errors::${body}"
+
+  # The whole stack from compose.yaml: builds the images, starts everything, checks the
+  # register and API through the gateway, then runs 500 simulated registers against it.
+  stack:
+    needs: [build, web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build and start the stack
+        run: docker compose up -d --build --wait --wait-timeout 300
+
+      - name: Smoke test through the gateway
+        run: |
+          set -e
+          curl -fsS http://localhost:8080/ | grep -q '<div id="root">'
+          curl -fsS http://localhost:8080/v1/health
+          curl -fsS "http://localhost:8080/v1/locations/5b1f6a2e-8c1d-4f3a-9e7b-2d4c6a8e0f11/menu-items?available=true" | grep -q 'Soft Pretzel'
+          echo "API replicas running: $(docker compose ps api --status running -q | wc -l)"
+
+      - name: Load test (500 registers)
+        run: |
+          chmod 777 load/results
+          docker compose --profile loadtest run --rm -e DURATION=2m k6
+
+      - name: Publish load test results
+        if: always()
+        run: |
+          if [ -f load/results/summary.txt ]; then
+            { echo '## Load test: 500 registers'; echo '```'; cat load/results/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            body=$(sed -e 's/%/%25/g' load/results/summary.txt | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::notice title=Load test results::${body}"
+          fi
+
+      - name: Report stack errors
+        if: failure()
+        run: |
+          docker compose ps -a
+          logs=$(docker compose logs --no-color --tail=150 2>&1 | grep -iE 'error|exception|fatal|refused|failed' | head -60 | sed -e 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+          [ -n "$logs" ] && echo "::error title=Stack logs::${logs}" || true
+          state=$(docker compose ps -a --format '{{.Service}} {{.State}} {{.Status}}' | sed ':a;N;$!ba;s/\n/%0A/g')
+          echo "::error title=Container states::${state}"
+
+      - name: Upload load test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-results
+          path: load/results/
+          if-no-files-found: ignore
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose --profile loadtest down -v

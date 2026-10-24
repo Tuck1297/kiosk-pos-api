@@ -2,9 +2,16 @@ spring:
   application:
     name: kiosk-pos-api
   datasource:
+    # In Docker this points at PgBouncer; Flyway gets a direct connection instead
+    # (SPRING_FLYWAY_URL), because migrations need session-level locks.
     url: ${DB_URL:jdbc:postgresql://localhost:5432/kiosk_pos}
     username: ${DB_USER:kiosk}
     password: ${DB_PASSWORD:kiosk}
+    hikari:
+      # Per replica. Keep (replicas x pool) under PgBouncer's client limit, not Postgres's.
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+      minimum-idle: 5
+      connection-timeout: 3000
   jpa:
     open-in-view: false
     hibernate:
@@ -15,9 +22,33 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # Fail fast so a Redis problem degrades to a database read, not a slow checkout.
+      timeout: 250ms
+      connect-timeout: 250ms
+  cache:
+    type: redis
+    cache-names: menu
+    redis:
+      # Bounds how stale a quote can be after a menu change made outside the API.
+      # Orders are always priced from the database, so this never affects a charge.
+      time-to-live: ${MENU_CACHE_TTL:60s}
+      # Bump the version when MenuSnapshot changes shape, so old entries are ignored.
+      key-prefix: "kiosk:v1:"
+
+server:
+  shutdown: graceful
 
 management:
   endpoints:
     web:
       exposure:
         include: health,info
+  endpoint:
+    health:
+      # /actuator/health/liveness and /readiness for Docker and load balancer checks.
+      probes:
+        enabled: true
