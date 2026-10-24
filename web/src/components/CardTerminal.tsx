@@ -1,4 +1,4 @@
-import { Badge, Box, Button, Group, Loader, Paper, SegmentedControl, SimpleGrid, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
+import { Badge, Box, Button, Flex, Group, Loader, Paper, SegmentedControl, SimpleGrid, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
 import { IconCircleCheck, IconCircleX, IconKeyboard, IconNfc } from '@tabler/icons-react';
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import type { Money, Payment } from '../api/client';
@@ -79,7 +79,7 @@ export function CardTerminal({ amount, disabled, charge, onApproved, onActiveCha
   const canPresent = !disabled && (phase.name === 'waiting' || phase.name === 'declined');
 
   return (
-    <Paper withBorder p="lg" radius="md">
+    <Paper withBorder p={{ base: 'sm', sm: 'lg' }} radius="md">
       <Stack gap="lg">
         <ReaderScreen amount={amount} phase={phase} method={method} />
 
@@ -107,7 +107,7 @@ export function CardTerminal({ amount, disabled, charge, onApproved, onActiveCha
                 disabled={!canPresent}
               />
             </Group>
-            <SimpleGrid cols={{ base: 2, sm: 3, lg: 5 }} spacing="sm">
+            <SimpleGrid cols={{ base: 2, xs: 3, sm: 2, md: 3, xl: 5 }} spacing="sm">
               {WALLET.map((card) => (
                 <UnstyledButton
                   key={card.token}
@@ -182,19 +182,20 @@ function ReaderScreen({ amount, phase, method }: { amount: Money; phase: Phase; 
     <Box
       role="status"
       aria-live="polite"
-      p="lg"
-      style={{ background: tone, color: 'white', borderRadius: 14, transition: 'background 200ms ease', minHeight: 156 }}
+      p={{ base: 'md', sm: 'lg' }}
+      mih={{ base: 132, sm: 156 }}
+      style={{ background: tone, color: 'white', borderRadius: 14, transition: 'background 200ms ease' }}
     >
       <Group justify="space-between" align="flex-start" wrap="nowrap">
         <Stack gap={2}>
           <Text size="sm" c="white" opacity={0.75} fw={600} tt="uppercase">Card reader</Text>
-          <Text fw={800} fz={44} lh={1.1} c="white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          <Text fw={800} fz={{ base: 34, sm: 44 }} lh={1.1} c="white" style={{ fontVariantNumeric: 'tabular-nums' }}>
             {formatMoney(amount)}
           </Text>
         </Stack>
         {icon}
       </Group>
-      <Text fw={700} fz={22} c="white" mt="sm">{headline}</Text>
+      <Text fw={700} fz={{ base: 19, sm: 22 }} c="white" mt="sm">{headline}</Text>
       <Text c="white" opacity={0.85}>{detail}</Text>
     </Box>
   );
@@ -223,7 +224,7 @@ function KeyInForm({ disabled, onSubmit, onCancel }: {
   return (
     <form onSubmit={submit} noValidate>
       <Stack gap="sm">
-        <Group justify="space-between">
+        <Group justify="space-between" gap={4}>
           <Text fw={700}>Key in card</Text>
           <Text size="xs" c="dimmed">The number is tokenized here and never sent to the API.</Text>
         </Group>
@@ -274,10 +275,10 @@ function KeyInForm({ disabled, onSubmit, onCancel }: {
           Test numbers: 4242 4242 4242 4242 approves; 4000 0000 0000 0002 declines; 4000 0000 0000 9995 has
           insufficient funds. Any future expiry.
         </Text>
-        <Group>
+        <Flex direction={{ base: 'column', xs: 'row' }} gap="sm">
           <Button type="submit" size="lg" disabled={disabled}>Charge card</Button>
           <Button variant="default" size="lg" onClick={onCancel} disabled={disabled}>Use the reader</Button>
-        </Group>
+        </Flex>
       </Stack>
     </form>
   );

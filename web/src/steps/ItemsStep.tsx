@@ -1,8 +1,9 @@
 import { Badge, Box, Button, Group, SegmentedControl, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/core';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { MenuItem } from '../api/client';
 import type { CartLine } from '../cart';
 import { OrderSummary, type SummaryLine } from '../components/OrderSummary';
+import { StepLayout } from '../components/StepLayout';
 import { formatMoney } from '../money';
 import type { QuoteState } from '../useQuote';
 
@@ -53,12 +54,18 @@ export function ItemsStep({ menu, cart, quote, onAdd, onChangeQuantity, onNext }
     };
   });
   const ready = cart.length > 0 && !quote.loading && !quote.error && quote.quote !== null;
+  const itemCount = cart.reduce((n, l) => n + l.quantity, 0);
+  const summaryRef = useRef<HTMLDivElement | null>(null);
 
   return (
-    <Group align="flex-start" gap="xl" wrap="wrap">
-      <Stack gap="lg" style={{ flex: '999 1 520px', minWidth: 0 }}>
-        <SegmentedControl data={categories} value={category} onChange={(v: string) => setCategory(v)} size="md" />
-        <SimpleGrid cols={{ base: 2, sm: 3, xl: 4 }} spacing="md">
+    <>
+    <StepLayout
+      main={
+      <Stack gap="md">
+        <Box className="scroll-x">
+          <SegmentedControl data={categories} value={category} onChange={(v: string) => setCategory(v)} size="md" />
+        </Box>
+        <SimpleGrid cols={{ base: 2, xs: 3, sm: 2, md: 3, xl: 4 }} spacing={{ base: 'sm', sm: 'md' }}>
           {visible.map((item) => {
             const qty = quantities.get(item.id);
             return (
@@ -67,9 +74,9 @@ export function ItemsStep({ menu, cart, quote, onAdd, onChangeQuantity, onNext }
                 onClick={() => onAdd(item.id)}
                 disabled={!item.available}
                 aria-label={item.available ? `Add ${item.name}, ${formatMoney(item.price)}` : `${item.name}, sold out`}
+                mih={{ base: 108, sm: 132 }}
+                p={{ base: 'sm', sm: 'md' }}
                 style={{
-                  minHeight: 132,
-                  padding: 16,
                   display: 'flex',
                   flexDirection: 'column',
                   justifyContent: 'space-between',
@@ -84,11 +91,11 @@ export function ItemsStep({ menu, cart, quote, onAdd, onChangeQuantity, onNext }
                   <Text size="xs" fw={700} tt="uppercase" c="dimmed">{CATEGORY_LABELS[item.category] ?? item.category}</Text>
                   {qty && <Badge circle size="lg">{qty}</Badge>}
                 </Group>
-                <Text fw={700} size="lg" td={item.available ? undefined : 'line-through'} c={item.available ? undefined : 'dimmed'}>
+                <Text fw={700} fz={{ base: 'md', sm: 'lg' }} lh={1.25} td={item.available ? undefined : 'line-through'} c={item.available ? undefined : 'dimmed'}>
                   {item.name}
                 </Text>
                 {item.available ? (
-                  <Text fw={800} size="xl">{formatMoney(item.price)}</Text>
+                  <Text fw={800} fz={{ base: 'lg', sm: 'xl' }}>{formatMoney(item.price)}</Text>
                 ) : (
                   <Box><Badge color="red" variant="light">Sold out</Badge></Box>
                 )}
@@ -97,8 +104,9 @@ export function ItemsStep({ menu, cart, quote, onAdd, onChangeQuantity, onNext }
           })}
         </SimpleGrid>
       </Stack>
-
-      <Box style={{ flex: '1 1 360px', maxWidth: 480 }}>
+      }
+      aside={
+      <Box ref={summaryRef} style={{ scrollMarginTop: 8 }}>
         <OrderSummary
           title="Current order"
           lines={lines}
@@ -117,6 +125,30 @@ export function ItemsStep({ menu, cart, quote, onAdd, onChangeQuantity, onNext }
           }
         />
       </Box>
-    </Group>
+      }
+    />
+
+    {/* Phones: the total and the next step stay on screen while the cashier taps items. */}
+    {cart.length > 0 && (
+      <>
+        <Box hiddenFrom="sm" className="checkout-bar-spacer" />
+        <Group hiddenFrom="sm" className="checkout-bar" justify="space-between" wrap="nowrap" gap="sm">
+          <UnstyledButton
+            onClick={() => summaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            aria-label="Show the order"
+            style={{ minWidth: 0 }}
+          >
+            <Text size="sm" c="dimmed" lh={1.2}>{itemCount} {itemCount === 1 ? 'item' : 'items'} · view order</Text>
+            <Text fw={800} fz={24} lh={1.2} style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {priced ? formatMoney(priced.total) : '…'}
+            </Text>
+          </UnstyledButton>
+          <Button size="lg" disabled={!ready} onClick={onNext} style={{ flexShrink: 0 }}>
+            Review order
+          </Button>
+        </Group>
+      </>
+    )}
+    </>
   );
 }

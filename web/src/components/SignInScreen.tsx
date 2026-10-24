@@ -31,8 +31,8 @@ export function SignInScreen({ onSignedIn }: Props) {
   }
 
   return (
-    <Center mih="100vh" p="md" bg="gray.0">
-      <Paper withBorder radius="lg" p="xl" w="100%" maw={420}>
+    <Center mih="100dvh" p="md" bg="gray.0">
+      <Paper withBorder radius="lg" p={{ base: 'lg', sm: 'xl' }} w="100%" maw={420}>
         <form onSubmit={submit}>
           <Stack gap="lg">
             <Stack gap={4} align="center">

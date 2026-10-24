@@ -1,10 +1,11 @@
-import { Alert, Box, Button, Group, NumberInput, Paper, SimpleGrid, Stack, Text, Title, UnstyledButton } from '@mantine/core';
+import { Alert, Button, Group, NumberInput, Paper, SimpleGrid, Stack, Text, Title, UnstyledButton } from '@mantine/core';
 import { IconCash, IconCreditCard, IconGift } from '@tabler/icons-react';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { ApiError, api, describeError, type CreatePaymentRequest, type Order, type Payment } from '../api/client';
 import { CardTerminal, type ChargeOutcome } from '../components/CardTerminal';
 import { CompDialog } from '../components/CompDialog';
 import { OrderSummary } from '../components/OrderSummary';
+import { StepLayout } from '../components/StepLayout';
 import { formatCents, formatMoney, quickCashAmounts } from '../money';
 
 type Tender = 'CARD' | 'CASH';
@@ -80,14 +81,15 @@ export function PaymentStep({ order, onPaid, onOrderChange, onCompedInFull }: Pr
   }
 
   return (
-    <Group align="flex-start" gap="xl" wrap="wrap">
-      <Stack gap="lg" style={{ flex: '999 1 520px', minWidth: 0, maxWidth: 820 }}>
+    <StepLayout
+      main={
+      <Stack gap="lg" maw={820}>
         <Group justify="space-between" align="flex-end" wrap="wrap">
           <div>
             <Text fw={600} c="dimmed">
               Total due · Order #{order.orderNumber}{order.guestName ? ` for ${order.guestName}` : ''}
             </Text>
-            <Title order={1} fz={72} lh={1.1} style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <Title order={1} fz={{ base: 48, sm: 72 }} lh={1.1} style={{ fontVariantNumeric: 'tabular-nums' }}>
               {formatMoney(order.total)}
             </Title>
           </div>
@@ -98,12 +100,12 @@ export function PaymentStep({ order, onPaid, onOrderChange, onCompedInFull }: Pr
         </Group>
         <CompDialog order={order} opened={compOpen} onClose={() => setCompOpen(false)} onComped={comped} />
 
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md" role="radiogroup" aria-label="Payment method">
+        <SimpleGrid cols={2} spacing={{ base: 'sm', sm: 'md' }} role="radiogroup" aria-label="Payment method">
           <TenderOption
             selected={tender === 'CARD'}
             disabled={locked}
             onSelect={() => setTender('CARD')}
-            icon={<IconCreditCard size={40} stroke={1.6} />}
+            icon={<IconCreditCard size={34} stroke={1.6} />}
             label="Card"
             hint="Tap, insert, swipe or key in"
           />
@@ -111,7 +113,7 @@ export function PaymentStep({ order, onPaid, onOrderChange, onCompedInFull }: Pr
             selected={tender === 'CASH'}
             disabled={locked}
             onSelect={() => setTender('CASH')}
-            icon={<IconCash size={40} stroke={1.6} />}
+            icon={<IconCash size={34} stroke={1.6} />}
             label="Cash"
             hint="Enter amount received"
           />
@@ -171,8 +173,8 @@ export function PaymentStep({ order, onPaid, onOrderChange, onCompedInFull }: Pr
 
         {error && <Alert color="red" variant="light" title="Payment not completed">{error}</Alert>}
       </Stack>
-
-      <Box style={{ flex: '1 1 360px', maxWidth: 480 }}>
+      }
+      aside={
         <OrderSummary
           title="Order summary"
           lines={order.lines.map((l) => ({
@@ -191,8 +193,8 @@ export function PaymentStep({ order, onPaid, onOrderChange, onCompedInFull }: Pr
           total={order.total}
           taxRateBps={order.taxRateBps}
         />
-      </Box>
-    </Group>
+      }
+    />
   );
 }
 
@@ -210,13 +212,14 @@ function TenderOption({ selected, disabled, onSelect, icon, label, hint }: {
       aria-checked={selected}
       onClick={onSelect}
       disabled={disabled}
+      mih={{ base: 84, sm: 112 }}
+      px={{ base: 'sm', sm: 'lg' }}
+      py={{ base: 'sm', sm: 'md' }}
       style={{
         opacity: disabled && !selected ? 0.5 : 1,
-        minHeight: 112,
-        padding: '20px 24px',
         display: 'flex',
         alignItems: 'center',
-        gap: 18,
+        gap: 14,
         borderRadius: 'var(--mantine-radius-lg)',
         border: `2px solid ${selected ? 'var(--mantine-primary-color-filled)' : 'var(--mantine-color-default-border)'}`,
         background: selected ? 'var(--mantine-primary-color-light)' : 'var(--mantine-color-body)',
@@ -225,8 +228,8 @@ function TenderOption({ selected, disabled, onSelect, icon, label, hint }: {
     >
       {icon}
       <Stack gap={0}>
-        <Text fw={700} fz={22} c="var(--mantine-color-text)">{label}</Text>
-        <Text c="dimmed">{hint}</Text>
+        <Text fw={700} fz={{ base: 18, sm: 22 }} c="var(--mantine-color-text)">{label}</Text>
+        <Text c="dimmed" fz={{ base: 'xs', sm: 'sm' }} lh={1.3}>{hint}</Text>
       </Stack>
     </UnstyledButton>
   );

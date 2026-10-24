@@ -1,6 +1,7 @@
 // Drives the register through two real sales against the running stack and saves a screenshot of
-// each screen. Doubles as a browser end-to-end check: it fails if any step doesn't show what the
-// server should have computed.
+// each screen, once per screen size (phones and tablets in both orientations, and desktop).
+// Doubles as a browser end-to-end check: it fails if any step doesn't show what the server should
+// have computed, or if the page scrolls sideways on any screen.
 //
 //   docker compose up -d --build --wait
 //   cd e2e && npm install --no-save playwright@1.49.1 && npx playwright install chromium
@@ -11,32 +12,63 @@ import { chromium } from 'playwright';
 const BASE = process.env.BASE_URL ?? 'http://localhost:8080';
 const OUT = process.env.OUT ?? 'screenshots';
 
-await mkdir(OUT, { recursive: true });
+const SCREENS = {
+  'phone-portrait': { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true },
+  'phone-landscape': { viewport: { width: 844, height: 390 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true },
+  'tablet-portrait': { viewport: { width: 820, height: 1180 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+  'tablet-landscape': { viewport: { width: 1180, height: 820 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+  desktop: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 },
+};
+const only = process.env.SCREENS?.split(',');
+
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
-page.setDefaultTimeout(15_000);
-const consoleErrors = [];
-page.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text()));
-
-let n = 0;
-async function shot(name) {
-  await page.waitForTimeout(250); // let transitions settle
-  const file = `${OUT}/${String(++n).padStart(2, '0')}-${name}.png`;
-  await page.screenshot({ path: file, fullPage: true });
-  console.log('saved', file);
-}
-
-const button = (name) => page.getByRole('button', { name });
-async function pricesSettled() {
-  await page.getByText('Updating prices').waitFor({ state: 'hidden' });
-}
-async function addItem(name, times = 1) {
-  for (let i = 0; i < times; i++) {
-    await button(new RegExp(`^Add ${name},`)).click();
+let failed = false;
+for (const [screen, options] of Object.entries(SCREENS)) {
+  if (only && !only.includes(screen)) continue;
+  const context = await browser.newContext(options);
+  const page = await context.newPage();
+  try {
+    await walkthrough(page, `${OUT}/${screen}`);
+    console.log(`${screen}: ok`);
+  } catch (e) {
+    failed = true;
+    await page.screenshot({ path: `${OUT}/${screen}/failure.png`, fullPage: true }).catch(() => {});
+    console.error(`${screen}: FAILED`, e);
+  } finally {
+    await context.close();
   }
 }
+await browser.close();
+if (failed) process.exitCode = 1;
 
-try {
+async function walkthrough(page, dir) {
+  await mkdir(dir, { recursive: true });
+  page.setDefaultTimeout(15_000);
+  const consoleErrors = [];
+  page.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text()));
+
+  let n = 0;
+  async function shot(name) {
+    await page.waitForTimeout(300); // let transitions settle
+    // Nothing should make a phone scroll sideways.
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    if (overflow > 1) throw new Error(`${name}: page is ${overflow}px wider than the screen`);
+    const file = `${dir}/${String(++n).padStart(2, '0')}-${name}.png`;
+    await page.screenshot({ path: file, fullPage: true });
+    console.log('saved', file);
+  }
+
+  // Phones show some actions twice (the checkout bar and the summary); either one will do.
+  const button = (name) => page.getByRole('button', { name }).first();
+  async function pricesSettled() {
+    await page.getByText('Updating prices').first().waitFor({ state: 'hidden' });
+  }
+  async function addItem(name, times = 1) {
+    for (let i = 0; i < times; i++) {
+      await button(new RegExp(`^Add ${name},`)).click();
+    }
+  }
+
   // Sign in
   await page.goto(BASE);
   await page.getByLabel('Employee ID').fill('C2001');
@@ -45,7 +77,7 @@ try {
   await page.getByLabel('PIN').press('Enter');
 
   // Sale 1: promo code, a declined card, then a keyed card
-  await page.getByText('Alex P.').waitFor();
+  await button(/^Sign out/).waitFor();
   await page.getByText('Soft Pretzel').first().waitFor();
   await shot('menu');
 
@@ -120,10 +152,4 @@ try {
   if (consoleErrors.length) {
     console.log('Browser console errors:\n' + consoleErrors.join('\n'));
   }
-} catch (e) {
-  await page.screenshot({ path: `${OUT}/failure.png`, fullPage: true }).catch(() => {});
-  console.error(e);
-  process.exitCode = 1;
-} finally {
-  await browser.close();
 }

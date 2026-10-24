@@ -1,0 +1,59 @@
+/*
+ * Layout rules that need media queries. Everything else is done with Mantine's responsive props.
+ * Breakpoints match Mantine's: xs 36em, sm 48em, md 62em, lg 75em, xl 88em.
+ */
+
+/* Phones with a notch, held sideways: keep content out from under it. */
+.register-shell {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Side column (order summary): from tablet width up it stays in view while the main column scrolls,
+   and scrolls inside itself when the screen is short (a phone or tablet held sideways). */
+@media (min-width: 48em) {
+  .step-aside {
+    position: sticky;
+    top: var(--mantine-spacing-md);
+    max-height: calc(100dvh - 2 * var(--mantine-spacing-md));
+    overflow-y: auto;
+  }
+}
+
+/* The phone checkout bar sits over the page, clear of the home indicator. */
+.checkout-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  padding-bottom: calc(var(--mantine-spacing-sm) + env(safe-area-inset-bottom));
+  padding-left: calc(var(--mantine-spacing-md) + env(safe-area-inset-left));
+  padding-right: calc(var(--mantine-spacing-md) + env(safe-area-inset-right));
+  background: var(--mantine-color-body);
+  border-top: 1px solid var(--mantine-color-default-border);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+}
+
+/* Room at the end of the page so the bar never covers the last row. */
+.checkout-bar-spacer {
+  height: calc(88px + env(safe-area-inset-bottom));
+}
+
+/* Category tabs scroll sideways on narrow screens instead of squeezing. */
+.scroll-x {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.scroll-x::-webkit-scrollbar {
+  display: none;
+}
+
+/* Landscape phones: very little height, so trim vertical padding everywhere. */
+@media (orientation: landscape) and (max-height: 32em) {
+  .register-main {
+    padding-top: var(--mantine-spacing-xs) !important;
+  }
+}

@@ -1,8 +1,9 @@
-import { Alert, Box, Button, Group, Loader, Paper, SegmentedControl, Stack, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Button, Flex, Group, Loader, Paper, SegmentedControl, Stack, Text, TextInput, Title } from '@mantine/core';
 import { IconArrowLeft, IconId, IconTicket } from '@tabler/icons-react';
 import { useState, type ChangeEvent, type FormEvent } from 'react';
 import type { DiscountRequest, OrderQuote } from '../api/client';
 import { OrderSummary } from '../components/OrderSummary';
+import { StepLayout } from '../components/StepLayout';
 import { formatMoney } from '../money';
 
 interface Props {
@@ -27,14 +28,15 @@ export function ReviewStep({
   const [guestName, setGuestName] = useState('');
 
   return (
-    <Group align="flex-start" gap="xl" wrap="wrap">
-      <Stack gap="lg" style={{ flex: '999 1 520px', minWidth: 0, maxWidth: 720 }}>
+    <StepLayout
+      main={
+      <Stack gap="lg" maw={720}>
         <div>
           <Group gap="sm">
             <Text fw={600} c="dimmed">Total due</Text>
             {repricing && <Loader size="xs" />}
           </Group>
-          <Title order={1} fz={64} lh={1.1} style={{ fontVariantNumeric: 'tabular-nums', opacity: repricing ? 0.5 : 1 }}>
+          <Title order={1} fz={{ base: 44, sm: 64 }} lh={1.1} style={{ fontVariantNumeric: 'tabular-nums', opacity: repricing ? 0.5 : 1 }}>
             {formatMoney(quote.total)}
           </Title>
           <Text c="dimmed" mt={4}>Read the order back to the guest before taking payment.</Text>
@@ -60,17 +62,18 @@ export function ReviewStep({
 
         {error && <Alert color="red" variant="light" title="Couldn't create the order">{error}</Alert>}
 
-        <Group gap="md">
+        {/* Phones: full-width buttons, the main action on top. */}
+        <Flex direction={{ base: 'column-reverse', xs: 'row' }} gap="md">
           <Button variant="default" size="lg" leftSection={<IconArrowLeft size={18} />} onClick={onBack} disabled={busy}>
             Edit items
           </Button>
           <Button size="lg" loading={busy} disabled={repricing} onClick={() => onConfirm(guestName.trim())}>
             Continue to payment
           </Button>
-        </Group>
+        </Flex>
       </Stack>
-
-      <Box style={{ flex: '1 1 360px', maxWidth: 480 }}>
+      }
+      aside={
         <OrderSummary
           title="Order summary"
           lines={quote.lines.map((l) => ({
@@ -88,8 +91,8 @@ export function ReviewStep({
           taxName={quote.taxRate.name}
           loading={repricing}
         />
-      </Box>
-    </Group>
+      }
+    />
   );
 }
 

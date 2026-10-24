@@ -14,10 +14,10 @@ interface Props {
 export function DoneStep({ order, payment, onNextSale }: Props) {
   const lastComp = order.comps[order.comps.length - 1];
   return (
-    <Center py="xl">
+    <Center py={{ base: 'md', sm: 'xl' }}>
       <Stack align="center" gap="lg" maw={560} w="100%">
         <IconCircleCheck size={72} stroke={1.5} color="var(--mantine-color-teal-7)" aria-hidden />
-        <Title order={1} ta="center">
+        <Title order={1} ta="center" fz={{ base: 28, sm: 34 }}>
           Order #{order.orderNumber} is {payment ? 'paid' : 'comped'}
         </Title>
         <Text c="dimmed" ta="center">
@@ -35,7 +35,7 @@ export function DoneStep({ order, payment, onNextSale }: Props) {
         {payment?.changeDue && (
           <Paper w="100%" p="xl" radius="lg" bg="green.0" ta="center">
             <Text fw={700} c="green.9">Change due</Text>
-            <Text fw={800} fz={64} lh={1.1} c="green.9" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <Text fw={800} fz={{ base: 48, sm: 64 }} lh={1.1} c="green.9" style={{ fontVariantNumeric: 'tabular-nums' }}>
               {formatMoney(payment.changeDue)}
             </Text>
           </Paper>

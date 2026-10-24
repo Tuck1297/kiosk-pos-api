@@ -1,4 +1,5 @@
 import { Alert, Button, Group, Modal, PasswordInput, Radio, Select, Stack, Text, TextInput } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { useRef, useState, type ChangeEvent } from 'react';
 import { ApiError, api, describeError, type CompReason, type Order } from '../api/client';
 import { formatMoney } from '../money';
@@ -26,6 +27,8 @@ interface Props {
  */
 export function CompDialog({ order, opened, onClose, onComped }: Props) {
   const compable = order.lines.filter((l) => !l.comped);
+  // Full screen on phones, so the keyboard doesn't push the form off a small modal.
+  const phone = useMediaQuery('(max-width: 48em)') ?? false;
   const [target, setTarget] = useState<string>(WHOLE_ORDER);
   const [reason, setReason] = useState<CompReason | null>(null);
   const [note, setNote] = useState('');
@@ -77,7 +80,8 @@ export function CompDialog({ order, opened, onClose, onComped }: Props) {
   }
 
   return (
-    <Modal opened={opened} onClose={close} title="Comp with manager approval" size="lg" centered>
+    <Modal opened={opened} onClose={close} title="Comp with manager approval" size="lg" centered fullScreen={phone}
+           transitionProps={phone ? { transition: 'slide-up' } : undefined}>
       <Stack gap="md">
         <Radio.Group label="What to comp" value={target} onChange={setTarget}>
           <Stack gap="xs" mt="xs">
