@@ -1,12 +1,75 @@
 package io.github.tuck1297.kioskpos.web;
 
+import static io.github.tuck1297.kioskpos.common.ApiMappers.money;
+
 import io.github.tuck1297.kioskpos.api.OrdersApi;
+import io.github.tuck1297.kioskpos.api.model.CreateOrderRequest;
+import io.github.tuck1297.kioskpos.api.model.Order;
+import io.github.tuck1297.kioskpos.api.model.OrderQuote;
+import io.github.tuck1297.kioskpos.api.model.QuoteLine;
+import io.github.tuck1297.kioskpos.api.model.QuoteRequest;
+import io.github.tuck1297.kioskpos.common.ApiMappers;
+import io.github.tuck1297.kioskpos.order.OrderService;
+import io.github.tuck1297.kioskpos.pricing.PricingService;
+import io.github.tuck1297.kioskpos.pricing.PricingService.PricedOrder;
+import java.net.URI;
+import java.time.OffsetDateTime;
+import java.util.UUID;
+import java.util.stream.Collectors;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Maps every Orders endpoint from openapi.yaml. Until a method is overridden here,
- * the generated default implementation answers 501 Not Implemented.
+ * Order endpoints. Not overridden yet (listOrders, updateOrderStatus, cancelOrder) answer
+ * 501 from the generated defaults.
  */
 @RestController
 public class OrdersController implements OrdersApi {
+
+    private final PricingService pricing;
+    private final OrderService orders;
+
+    public OrdersController(PricingService pricing, OrderService orders) {
+        this.pricing = pricing;
+        this.orders = orders;
+    }
+
+    @Override
+    public ResponseEntity<OrderQuote> quoteOrder(QuoteRequest quoteRequest) {
+        PricedOrder priced = pricing.price(quoteRequest.getLocationId(), quoteRequest.getLines());
+        String currency = priced.currency();
+        return ResponseEntity.ok(new OrderQuote()
+                .locationId(priced.location().getId())
+                .lines(priced.lines().stream()
+                        .map(l -> new QuoteLine()
+                                .menuItemId(l.item().getId())
+                                .sku(l.item().getSku())
+                                .name(l.item().getName())
+                                .quantity(l.quantity())
+                                .unitPrice(money(l.unitPriceCents(), currency))
+                                .lineTotal(money(l.lineTotalCents(), currency))
+                                .note(l.note()))
+                        .collect(Collectors.toList()))
+                .subtotal(money(priced.subtotalCents(), currency))
+                .taxRate(ApiMappers.taxRate(priced.taxRate()))
+                .tax(money(priced.taxCents(), currency))
+                .total(money(priced.totalCents(), currency))
+                .pricedAt(OffsetDateTime.now()));
+    }
+
+    @Override
+    public ResponseEntity<Order> createOrder(UUID idempotencyKey, CreateOrderRequest createOrderRequest) {
+        Order order = orders.create(idempotencyKey, createOrderRequest);
+        return ResponseEntity.created(URI.create("/v1/orders/" + order.getId()))
+                .eTag(String.valueOf(order.getVersion()))
+                .body(order);
+    }
+
+    @Override
+    public ResponseEntity<Order> getOrder(UUID orderId) {
+        Order order = orders.get(orderId);
+        return ResponseEntity.ok()
+                .eTag(String.valueOf(order.getVersion()))
+                .body(order);
+    }
 }

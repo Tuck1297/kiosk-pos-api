@@ -1,9 +1,13 @@
 -- Local/dev seed data only. Enabled by adding classpath:db/seed to
 -- spring.flyway.locations in application-local.yml. Never runs in prod.
+-- Runs after V1 and V2, so locations point at a tax_rate row.
 
-INSERT INTO location (id, name, park_code, timezone, tax_rate_bps, currency) VALUES
-    ('5b1f6a2e-8c1d-4f3a-9e7b-2d4c6a8e0f11', 'Lakeside Snack Stand', 'LAKE', 'America/New_York', 650, 'USD'),
-    ('7d2e8b3f-9a4c-4b5d-8f6e-3a5c7b9d1e22', 'Frontier Outpost Shop', 'FRNT', 'America/New_York', 650, 'USD');
+INSERT INTO tax_rate (id, code, name, rate_bps) VALUES
+    ('0e8c1f2a-3b4d-4c5e-9f6a-7b8c9d0e1f01', 'PARK-STD', 'Park standard sales tax', 650);
+
+INSERT INTO location (id, name, park_code, timezone, tax_rate_id, currency) VALUES
+    ('5b1f6a2e-8c1d-4f3a-9e7b-2d4c6a8e0f11', 'Lakeside Snack Stand', 'LAKE', 'America/New_York', '0e8c1f2a-3b4d-4c5e-9f6a-7b8c9d0e1f01', 'USD'),
+    ('7d2e8b3f-9a4c-4b5d-8f6e-3a5c7b9d1e22', 'Frontier Outpost Shop', 'FRNT', 'America/New_York', '0e8c1f2a-3b4d-4c5e-9f6a-7b8c9d0e1f01', 'USD');
 
 INSERT INTO menu_item (id, location_id, sku, name, description, category, price_cents, available) VALUES
     ('9a3e7c51-2b4d-4e6f-8a1c-3d5e7f9b1c22', '5b1f6a2e-8c1d-4f3a-9e7b-2d4c6a8e0f11', 'SNK-PRETZEL', 'Soft Pretzel', 'Warm pretzel with cheese dip', 'SNACK', 750, TRUE),

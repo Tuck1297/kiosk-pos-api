@@ -55,3 +55,31 @@ jobs:
           path: |
             target/surefire-reports/
             build.log
+
+  # The cashier register UI: generates TypeScript types from openapi.yaml, type-checks
+  # against them and builds. A contract change the UI doesn't handle fails here.
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Type-check and build
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee build.log
+
+      - name: Report build errors
+        if: failure()
+        run: |
+          body=$( (grep -E 'error|Error|ERR!' build.log || tail -40 build.log) | head -60 | sed -e 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+          echo "::error title=Web build errors::${body}"

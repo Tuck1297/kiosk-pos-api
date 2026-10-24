@@ -3,6 +3,7 @@ package io.github.tuck1297.kioskpos.web;
 import io.github.tuck1297.kioskpos.api.LocationsApi;
 import io.github.tuck1297.kioskpos.api.model.Location;
 import io.github.tuck1297.kioskpos.api.model.LocationPage;
+import io.github.tuck1297.kioskpos.common.ApiMappers;
 import io.github.tuck1297.kioskpos.common.Cursor;
 import io.github.tuck1297.kioskpos.common.NotFoundException;
 import io.github.tuck1297.kioskpos.location.LocationEntity;
@@ -51,13 +52,6 @@ public class LocationsController implements LocationsApi {
     }
 
     static Location toApi(LocationEntity e) {
-        return new Location()
-                .id(e.getId())
-                .name(e.getName())
-                .parkCode(e.getParkCode())
-                .timezone(e.getTimezone())
-                .taxRateBps(e.getTaxRateBps())
-                .currency(e.getCurrency())
-                .active(e.isActive());
+        return ApiMappers.location(e);
     }
 }

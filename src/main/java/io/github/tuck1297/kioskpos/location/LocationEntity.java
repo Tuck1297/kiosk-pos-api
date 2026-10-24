@@ -1,8 +1,11 @@
 package io.github.tuck1297.kioskpos.location;
 
+import io.github.tuck1297.kioskpos.tax.TaxRateEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -23,8 +26,10 @@ public class LocationEntity {
     @Column(nullable = false)
     private String timezone;
 
-    @Column(name = "tax_rate_bps", nullable = false)
-    private int taxRateBps;
+    /** Loaded with the location (eager): pricing always needs it. */
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "tax_rate_id", nullable = false)
+    private TaxRateEntity taxRate;
 
     @Column(nullable = false, length = 3)
     private String currency;
@@ -55,8 +60,8 @@ public class LocationEntity {
         return timezone;
     }
 
-    public int getTaxRateBps() {
-        return taxRateBps;
+    public TaxRateEntity getTaxRate() {
+        return taxRate;
     }
 
     public String getCurrency() {

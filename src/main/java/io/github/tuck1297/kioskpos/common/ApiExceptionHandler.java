@@ -8,11 +8,13 @@ import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
@@ -28,9 +30,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     private static final String PROBLEM_BASE = "https://kiosk-pos.example.com/problems/";
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
-    @ExceptionHandler(NotFoundException.class)
-    ResponseEntity<ProblemDetail> handleNotFound(NotFoundException ex) {
-        return problem(HttpStatus.NOT_FOUND, "Not found", ex.getMessage(), "NOT_FOUND");
+    @ExceptionHandler(ApiException.class)
+    ResponseEntity<ProblemDetail> handleApiException(ApiException ex) {
+        ResponseEntity<ProblemDetail> response = problem(ex.getStatus(), ex.getTitle(), ex.getMessage(), ex.getCode());
+        ex.getProperties().forEach(response.getBody()::setProperty);
+        return response;
     }
 
     @ExceptionHandler(Cursor.InvalidCursorException.class)
@@ -54,6 +58,25 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 "One or more parameters are invalid.", "VALIDATION_FAILED");
         response.getBody().setProperty("errors", errors);
         return response;
+    }
+
+    /** Two requests changed the same order at once; the loser re-fetches and retries. */
+    @ExceptionHandler({ObjectOptimisticLockingFailureException.class, jakarta.persistence.OptimisticLockException.class})
+    ResponseEntity<ProblemDetail> handleOptimisticLock(Exception ex) {
+        return problem(HttpStatus.PRECONDITION_FAILED, "Stale version",
+                "The order changed while this request was running. Re-fetch it and try again.", "STALE_VERSION");
+    }
+
+    /**
+     * A database constraint caught a conflicting write, e.g. the unique index that allows
+     * only one captured payment per order.
+     */
+    @ExceptionHandler({DataIntegrityViolationException.class, org.hibernate.exception.ConstraintViolationException.class})
+    ResponseEntity<ProblemDetail> handleIntegrityViolation(Exception ex) {
+        log.warn("Rejected conflicting write: {}", ex.getMessage());
+        return problem(HttpStatus.CONFLICT, "Conflicting change",
+                "This conflicts with a change that was just made (for example, the order is already paid). Re-fetch and try again.",
+                "INVALID_TRANSITION");
     }
 
     /** Anything unexpected still comes back as problem+json, without leaking internals. */

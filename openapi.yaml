@@ -10,8 +10,8 @@ info:
     ## Conventions
     - **Money** is always an integer in minor units (`amountCents`) plus an ISO 4217
       `currency`. Never floats.
-    - **Tax** is computed once on the order subtotal using the location's `taxRateBps`,
-      rounded half-up to the cent.
+    - **Tax** is computed once on the order subtotal using the location's tax rate
+      (`rateBps`, from the tax rate table), rounded half-up to the cent.
     - **Prices are snapshotted** onto order lines when an order is created, so later
       menu price changes never alter an existing order.
     - **Idempotency**: every `POST` that creates or charges something requires an
@@ -103,13 +103,12 @@ paths:
           $ref: '#/components/responses/NotFound'
 
   /locations/{locationId}/menu-items:
-    parameters:
-      - $ref: '#/components/parameters/LocationId'
     get:
       tags: [Menu]
       operationId: listMenuItems
       summary: List a location's menu
       parameters:
+        - $ref: '#/components/parameters/LocationId'
         - name: available
           in: query
           description: When true, only items that can be ordered right now.
@@ -137,6 +136,7 @@ paths:
       operationId: createMenuItem
       summary: Add an item to a location's menu (staff)
       parameters:
+        - $ref: '#/components/parameters/LocationId'
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
@@ -207,8 +207,9 @@ paths:
       operationId: createOrder
       summary: Create an order
       description: |
-        Validates every item belongs to `locationId` and is available, snapshots prices,
-        and computes subtotal, tax and total on the server. Clients never send prices.
+        Prices the order exactly like `POST /orders/quote` (every item must be sold and
+        available at `locationId`), snapshots prices and the tax rate onto the order,
+        and assigns a pickup number. Clients never send prices or totals.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -297,6 +298,58 @@ paths:
           $ref: '#/components/responses/ValidationFailed'
         '401':
           $ref: '#/components/responses/Unauthorized'
+
+  /orders/quote:
+    post:
+      tags: [Orders]
+      operationId: quoteOrder
+      summary: Price a basket without creating an order
+      description: |
+        The register sends only menu item ids and quantities; the server returns every
+        price, line total, the tax rate, tax and total. Nothing is stored. Use it to show
+        the cashier and guest the amount due before creating the order.
+
+        `POST /orders` recomputes the same numbers itself, so a quote is never trusted
+        as input.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuoteRequest'
+            example:
+              locationId: 5b1f6a2e-8c1d-4f3a-9e7b-2d4c6a8e0f11
+              lines:
+                - menuItemId: 9a3e7c51-2b4d-4e6f-8a1c-3d5e7f9b1c22
+                  quantity: 2
+                - menuItemId: 1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e33
+                  quantity: 1
+                  note: no ice
+      responses:
+        '200':
+          description: The priced basket.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderQuote'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: An item is sold out or not sold at this location, or the location is closed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://kiosk-pos.example.com/problems/item-unavailable
+                title: Item unavailable
+                status: 409
+                detail: Churro is sold out.
+                code: ITEM_UNAVAILABLE
 
   /orders/{orderId}:
     parameters:
@@ -404,20 +457,24 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
 
   /orders/{orderId}/payments:
-    parameters:
-      - $ref: '#/components/parameters/OrderId'
     post:
       tags: [Payments]
       operationId: payOrder
       summary: Pay for an order
       description: |
-        Charges the order's full `totalCents`. On success the order moves to `PAID`.
-        The card processor is mocked: `cardToken` values starting with `tok_decline`
-        are declined, anything else is approved.
+        Charges the order's full total, as computed by the server. On success the order
+        moves to `PAID`. For cash, the server computes `changeDue`; for an amount below
+        the total it returns `400 INSUFFICIENT_CASH`.
 
-        This is the call a flaky mobile connection will retry, so the
-        `Idempotency-Key` guarantees a guest is charged at most once.
+        The card processor is mocked: a `cardToken` starting with `tok_decline` is
+        declined (`tok_decline_insufficient_funds_0002` declines with code
+        `insufficient_funds`); anything else is approved. Trailing digits become `cardLast4`.
+
+        A declined attempt is recorded and the same `Idempotency-Key` will replay the
+        decline, so retry with a new key. The database allows only one captured payment
+        per order, so a guest can never be charged twice.
       parameters:
+        - $ref: '#/components/parameters/OrderId'
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/IfMatch'
       requestBody:
@@ -474,6 +531,8 @@ paths:
       tags: [Payments]
       operationId: listOrderPayments
       summary: List payment attempts for an order
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
       responses:
         '200':
           description: All attempts, including declines and voids, newest first.
@@ -648,7 +707,7 @@ components:
 
     Location:
       type: object
-      required: [id, name, parkCode, timezone, taxRateBps, currency, active]
+      required: [id, name, parkCode, timezone, taxRate, currency, active]
       properties:
         id:
           type: string
@@ -664,18 +723,35 @@ components:
         timezone:
           type: string
           example: America/New_York
-        taxRateBps:
-          type: integer
-          description: Sales tax in basis points (650 = 6.50%).
-          minimum: 0
-          maximum: 3000
-          example: 650
+        taxRate:
+          $ref: '#/components/schemas/TaxRate'
         currency:
           type: string
           pattern: '^[A-Z]{3}$'
           example: USD
         active:
           type: boolean
+
+    TaxRate:
+      type: object
+      description: A sales tax rate shared by every location in its jurisdiction.
+      required: [id, code, name, rateBps]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          example: PARK-STD
+        name:
+          type: string
+          example: Park standard sales tax
+        rateBps:
+          type: integer
+          description: Basis points (650 = 6.50%).
+          minimum: 0
+          maximum: 3000
+          example: 650
 
     MenuCategory:
       type: string
@@ -766,6 +842,66 @@ components:
       type: string
       enum: [MOBILE, KIOSK, COUNTER]
 
+    QuoteRequest:
+      type: object
+      required: [locationId, lines]
+      additionalProperties: false
+      properties:
+        locationId:
+          type: string
+          format: uuid
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 30
+          items:
+            $ref: '#/components/schemas/OrderLineRequest'
+
+    QuoteLine:
+      type: object
+      required: [menuItemId, sku, name, quantity, unitPrice, lineTotal]
+      properties:
+        menuItemId:
+          type: string
+          format: uuid
+        sku:
+          type: string
+        name:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        unitPrice:
+          $ref: '#/components/schemas/Money'
+        lineTotal:
+          $ref: '#/components/schemas/Money'
+        note:
+          type: [string, 'null']
+
+    OrderQuote:
+      type: object
+      description: Server-computed prices for a basket. Not stored.
+      required: [locationId, lines, subtotal, taxRate, tax, total, pricedAt]
+      properties:
+        locationId:
+          type: string
+          format: uuid
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuoteLine'
+        subtotal:
+          $ref: '#/components/schemas/Money'
+        taxRate:
+          $ref: '#/components/schemas/TaxRate'
+        tax:
+          $ref: '#/components/schemas/Money'
+        total:
+          $ref: '#/components/schemas/Money'
+        pricedAt:
+          type: string
+          format: date-time
+
     CreateOrderRequest:
       type: object
       required: [locationId, channel, lines]
@@ -831,7 +967,7 @@ components:
 
     Order:
       type: object
-      required: [id, orderNumber, locationId, channel, status, lines, subtotal, tax, total, version, createdAt, updatedAt]
+      required: [id, orderNumber, locationId, channel, status, lines, subtotal, taxRateBps, tax, total, version, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -861,6 +997,9 @@ components:
           $ref: '#/components/schemas/Money'
         cancelReason:
           type: [string, 'null']
+        taxRateBps:
+          type: integer
+          description: The tax rate this order was priced with, in basis points. Later rate changes don't affect it.
         version:
           type: integer
           description: Increments on every change. Also returned as `ETag`.
@@ -1032,6 +1171,7 @@ components:
             - NOT_FOUND
             - DUPLICATE_SKU
             - ITEM_UNAVAILABLE
+            - LOCATION_CLOSED
             - INVALID_TRANSITION
             - STALE_VERSION
             - PRECONDITION_REQUIRED
