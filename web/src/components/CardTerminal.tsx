@@ -79,7 +79,7 @@ export function CardTerminal({ amount, disabled, charge, onApproved, onActiveCha
   const canPresent = !disabled && (phase.name === 'waiting' || phase.name === 'declined');
 
   return (
-    <Paper withBorder p={{ base: 'sm', sm: 'lg' }} radius="md">
+    <Paper className="panel" p={{ base: 'sm', sm: 'lg' }} radius="xl">
       <Stack gap="lg">
         <ReaderScreen amount={amount} phase={phase} method={method} />
 
@@ -155,7 +155,7 @@ function ReaderScreen({ amount, phase, method }: { amount: Money; phase: Phase; 
   const tone =
     phase.name === 'approved' ? 'var(--mantine-color-teal-8)'
       : phase.name === 'declined' ? 'var(--mantine-color-red-8)'
-        : 'var(--mantine-color-dark-7)';
+        : 'var(--register-ink)';
 
   let icon = <IconNfc size={44} stroke={1.5} aria-hidden />;
   let headline = method === 'INSERT' ? 'Insert card' : method === 'SWIPE' ? 'Swipe card' : 'Tap, insert or swipe';
@@ -185,12 +185,12 @@ function ReaderScreen({ amount, phase, method }: { amount: Money; phase: Phase; 
       className="reader-screen"
       p={{ base: 'md', sm: 'lg' }}
       mih={{ base: 132, sm: 156 }}
-      style={{ background: tone, color: 'white', borderRadius: 14, transition: 'background 200ms ease' }}
+      style={{ background: tone, color: 'white', borderRadius: 'var(--mantine-radius-lg)', transition: 'background 200ms ease' }}
     >
       <Group justify="space-between" align="flex-start" wrap="nowrap">
         <Stack gap={2}>
-          <Text size="sm" c="white" opacity={0.75} fw={600} tt="uppercase">Card reader</Text>
-          <Text fw={800} fz={{ base: 34, sm: 44 }} lh={1.1} c="white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          <Text size="sm" c="white" opacity={0.75} fw={500}>Card reader</Text>
+          <Text className="display-number" fz={{ base: 36, sm: 48 }} lh={1.05} c="white" style={{ fontVariantNumeric: 'tabular-nums' }}>
             {formatMoney(amount)}
           </Text>
         </Stack>
@@ -237,7 +237,7 @@ function KeyInForm({ disabled, onSubmit, onCancel }: {
           placeholder="4242 4242 4242 4242"
           value={card.number}
           error={errors.number}
-          rightSection={brand ? <Badge variant="light" size="sm">{BRAND_LABELS[brand]}</Badge> : null}
+          rightSection={brand ? <Badge variant="light" size="sm" tt="none">{BRAND_LABELS[brand]}</Badge> : null}
           rightSectionWidth={brand ? 130 : undefined}
           onChange={(e: ChangeEvent<HTMLInputElement>) => {
             const number = formatCardNumber(e.currentTarget.value);

@@ -33,9 +33,9 @@ export function DoneStep({ order, payment, onNextSale }: Props) {
         )}
 
         {payment?.changeDue && (
-          <Paper w="100%" p="xl" radius="lg" bg="green.0" ta="center">
-            <Text fw={700} c="green.9">Change due</Text>
-            <Text fw={800} fz={{ base: 48, sm: 64 }} lh={1.1} c="green.9" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          <Paper w="100%" p="xl" radius="xl" bg="teal.0" ta="center" style={{ border: '1px solid var(--mantine-color-teal-3)' }}>
+            <Text fw={600} c="teal.9">Change due</Text>
+            <Text className="display-number" fz={{ base: 56, sm: 76 }} lh={1} c="teal.9" mt={4}>
               {formatMoney(payment.changeDue)}
             </Text>
           </Paper>

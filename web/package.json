@@ -11,6 +11,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.1.0",
+    "@fontsource-variable/lexend": "^5.1.0",
     "@mantine/core": "^9.6.0",
     "@mantine/hooks": "^9.6.0",
     "@tabler/icons-react": "^3.34.0",

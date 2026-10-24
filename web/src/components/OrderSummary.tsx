@@ -1,4 +1,4 @@
-import { ActionIcon, Alert, Badge, Box, Divider, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core';
+import { ActionIcon, Alert, Badge, Box, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core';
 import { IconMinus, IconPlus } from '@tabler/icons-react';
 import type { ReactNode } from 'react';
 import type { AppliedDiscount, Money } from '../api/client';
@@ -42,7 +42,7 @@ export function OrderSummary({
   title, lines, subtotal, discount, compTotal, tax, total, taxRateBps, taxName, loading, error, onChangeQuantity, footer,
 }: Props) {
   return (
-    <Paper withBorder p="lg" radius="md">
+    <Paper className="panel ticket" p="lg" radius="xl">
       <Stack gap="md">
         <Group justify="space-between">
           <Title order={3}>{title}</Title>
@@ -68,7 +68,7 @@ export function OrderSummary({
                       <Text fw={600} td={line.comped ? 'line-through' : undefined} style={{ overflowWrap: 'anywhere' }}>
                         {onChangeQuantity ? line.name : `${line.quantity}× ${line.name}`}
                       </Text>
-                      {line.comped && <Badge color="orange" variant="light" size="sm">Comped</Badge>}
+                      {line.comped && <Badge color="orange" variant="light" size="sm" tt="none">Comped</Badge>}
                     </Group>
                     {line.note && <Text size="sm" fs="italic" c="orange.9">{line.note}</Text>}
                   </Stack>
@@ -98,7 +98,7 @@ export function OrderSummary({
 
         {lines.length > 0 && (
           <>
-            <Divider />
+            <div className="ticket-perf" role="separator" />
             <Stack gap={4} className="summary-totals" style={{ fontVariantNumeric: 'tabular-nums' }}>
               <Group justify="space-between">
                 <Text c="dimmed">Subtotal</Text>
@@ -125,7 +125,7 @@ export function OrderSummary({
               </Group>
               <Group justify="space-between" mt={6}>
                 <Text fw={700} size="lg">Total</Text>
-                <Text fw={800} size="xl">{total ? formatMoney(total) : '—'}</Text>
+                <Text className="display-number" fz={30} lh={1}>{total ? formatMoney(total) : '—'}</Text>
               </Group>
             </Stack>
           </>

@@ -31,12 +31,12 @@ export function SignInScreen({ onSignedIn }: Props) {
   }
 
   return (
-    <Center mih="100dvh" p="md" bg="gray.0">
-      <Paper withBorder radius="lg" p={{ base: 'lg', sm: 'xl' }} w="100%" maw={420}>
+    <Center mih="100dvh" p="md">
+      <Paper className="panel" radius="xl" p={{ base: 'lg', sm: 'xl' }} w="100%" maw={420}>
         <form onSubmit={submit}>
           <Stack gap="lg">
             <Stack gap={4} align="center">
-              <Center w={48} h={48} bg="indigo.8" style={{ borderRadius: 'var(--mantine-radius-md)' }}>
+              <Center w={52} h={52} bg="var(--register-ink)" style={{ borderRadius: 'var(--mantine-radius-lg)' }}>
                 <IconBuildingStore size={26} color="white" aria-hidden />
               </Center>
               <Title order={2} mt="xs">Sign in to the register</Title>

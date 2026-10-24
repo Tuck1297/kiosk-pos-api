@@ -155,7 +155,7 @@ function Register({ staff, onSignOut }: { staff: Staff; onSignOut: () => void })
   }
 
   return (
-    <Box mih="100dvh" bg="var(--mantine-color-body)" className="register-shell">
+    <Box mih="100dvh" className="register-shell">
       <Group
         component="header"
         justify="space-between"
@@ -163,14 +163,15 @@ function Register({ staff, onSignOut }: { staff: Staff; onSignOut: () => void })
         gap="sm"
         px={{ base: 'sm', sm: 'lg' }}
         py={{ base: 6, sm: 'sm' }}
-        style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}
+        bg="white"
+        style={{ borderBottom: '1px solid var(--register-line)' }}
       >
         <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
-          <Center w={36} h={36} bg="indigo.8" style={{ borderRadius: 'var(--mantine-radius-md)', flexShrink: 0 }}>
+          <Center w={38} h={38} bg="var(--register-ink)" style={{ borderRadius: 'var(--mantine-radius-md)', flexShrink: 0 }}>
             <IconBuildingStore size={20} color="white" aria-hidden />
           </Center>
           <Box style={{ minWidth: 0 }}>
-            <Text fw={700} lh={1.2}>Register 1</Text>
+            <Text fw={800} lh={1.2} ff="heading" fz="lg">Register 1</Text>
             <Text size="sm" c="dimmed" lh={1.2} truncate="end">{location?.name ?? 'Loading…'}</Text>
           </Box>
         </Group>
@@ -183,14 +184,14 @@ function Register({ staff, onSignOut }: { staff: Staff; onSignOut: () => void })
             <Stepper.Step label="Payment" />
           </Stepper>
         </Box>
-        <Badge hiddenFrom="md" variant="light" size="lg" style={{ flexShrink: 0 }}>
-          {step < DONE ? `${step + 1}/3 · ${STEP_NAMES[step]}` : 'Done'}
+        <Badge hiddenFrom="md" variant="light" size="lg" tt="none" style={{ flexShrink: 0 }}>
+          {step < DONE ? `${STEP_NAMES[step]}, ${step + 1} of 3` : 'Done'}
         </Badge>
 
         <Group gap="sm" wrap="nowrap" style={{ flexShrink: 0 }}>
           <Box visibleFrom="sm" style={{ textAlign: 'right' }}>
             <Text fw={600} lh={1.2}>{staff.name}</Text>
-            <Text size="sm" c="dimmed" lh={1.2}>{staff.role === 'MANAGER' ? 'Manager' : 'Cashier'} · {staff.employeeId}</Text>
+            <Text size="sm" c="dimmed" lh={1.2}>{staff.role === 'MANAGER' ? 'Manager' : 'Cashier'} {staff.employeeId}</Text>
           </Box>
           <Button visibleFrom="sm" variant="default" leftSection={<IconLogout size={16} />} onClick={onSignOut}
                   disabled={step === PAYMENT}>

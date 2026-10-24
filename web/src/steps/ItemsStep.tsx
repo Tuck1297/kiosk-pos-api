@@ -8,12 +8,24 @@ import { formatMoney } from '../money';
 import type { QuoteState } from '../useQuote';
 
 const CATEGORY_LABELS: Record<string, string> = {
-  ENTREE: 'Entrees',
+  ENTREE: 'Entrées',
   SNACK: 'Snacks',
   DESSERT: 'Desserts',
-  BEVERAGE: 'Beverages',
+  BEVERAGE: 'Drinks',
   MERCHANDISE: 'Merchandise',
 };
+
+/** Each category's color (theme.css), shared by its tab and its tiles. */
+const categoryColor = (category: string) => `var(--cat-${category}, var(--mantine-color-gray-6))`;
+
+function CategoryTag({ category }: { category: string }) {
+  return (
+    <Group gap={6} wrap="nowrap">
+      <span className="category-dot" style={{ background: categoryColor(category) }} aria-hidden />
+      <Text size="sm" fw={600} c={categoryColor(category)}>{CATEGORY_LABELS[category] ?? category}</Text>
+    </Group>
+  );
+}
 
 interface Props {
   menu: MenuItem[];
@@ -29,7 +41,18 @@ export function ItemsStep({ menu, cart, quote, onAdd, onChangeQuantity, onNext }
 
   const categories = useMemo(() => {
     const present = [...new Set(menu.map((m) => m.category))];
-    return [{ value: 'ALL', label: 'All items' }, ...present.map((c) => ({ value: c, label: CATEGORY_LABELS[c] ?? c }))];
+    return [
+      { value: 'ALL', label: 'All items' },
+      ...present.map((c) => ({
+        value: c,
+        label: (
+          <Group gap={6} wrap="nowrap" justify="center">
+            <span className="category-dot" style={{ background: categoryColor(c) }} aria-hidden />
+            <span>{CATEGORY_LABELS[c] ?? c}</span>
+          </Group>
+        ),
+      })),
+    ];
   }, [menu]);
 
   const visible = useMemo(
@@ -63,7 +86,8 @@ export function ItemsStep({ menu, cart, quote, onAdd, onChangeQuantity, onNext }
       main={
       <Stack gap="md">
         <Box className="scroll-x">
-          <SegmentedControl data={categories} value={category} onChange={(v: string) => setCategory(v)} size="md" />
+          <SegmentedControl data={categories} value={category} onChange={(v: string) => setCategory(v)} size="md"
+                            radius="xl" bg="white" style={{ border: '1px solid var(--register-line)' }} />
         </Box>
         <SimpleGrid cols={{ base: 2, xs: 3, sm: 2, md: 3, xl: 4 }} spacing={{ base: 'sm', sm: 'md' }}>
           {visible.map((item) => {
@@ -75,6 +99,7 @@ export function ItemsStep({ menu, cart, quote, onAdd, onChangeQuantity, onNext }
                 disabled={!item.available}
                 aria-label={item.available ? `Add ${item.name}, ${formatMoney(item.price)}` : `${item.name}, sold out`}
                 className="menu-tile"
+                data-in-cart={qty ? true : undefined}
                 mih={{ base: 108, sm: 132 }}
                 p={{ base: 'sm', sm: 'md' }}
                 style={{
@@ -82,23 +107,20 @@ export function ItemsStep({ menu, cart, quote, onAdd, onChangeQuantity, onNext }
                   flexDirection: 'column',
                   justifyContent: 'space-between',
                   gap: 8,
-                  border: `1px ${item.available ? 'solid' : 'dashed'} var(--mantine-color-default-border)`,
-                  borderRadius: 'var(--mantine-radius-md)',
-                  background: item.available ? 'var(--mantine-color-body)' : 'var(--mantine-color-gray-1)',
                   cursor: item.available ? 'pointer' : 'not-allowed',
                 }}
               >
-                <Group justify="space-between" wrap="nowrap">
-                  <Text size="xs" fw={700} tt="uppercase" c="dimmed">{CATEGORY_LABELS[item.category] ?? item.category}</Text>
-                  {qty && <Badge circle size="lg">{qty}</Badge>}
+                <Group justify="space-between" wrap="nowrap" gap="xs">
+                  <CategoryTag category={item.category} />
+                  {qty && <span className="cart-count" aria-label={`${qty} in the order`}>{qty}</span>}
                 </Group>
-                <Text fw={700} fz={{ base: 'md', sm: 'lg' }} lh={1.25} td={item.available ? undefined : 'line-through'} c={item.available ? undefined : 'dimmed'}>
+                <Text fw={600} fz={{ base: 'md', sm: 'lg' }} lh={1.25} td={item.available ? undefined : 'line-through'} c={item.available ? undefined : 'dimmed'}>
                   {item.name}
                 </Text>
                 {item.available ? (
-                  <Text fw={800} fz={{ base: 'lg', sm: 'xl' }}>{formatMoney(item.price)}</Text>
+                  <Text className="display-number" fz={{ base: 22, sm: 26 }} lh={1}>{formatMoney(item.price)}</Text>
                 ) : (
-                  <Box><Badge color="red" variant="light">Sold out</Badge></Box>
+                  <Box><Badge color="red" variant="light" tt="none" size="lg">Sold out</Badge></Box>
                 )}
               </UnstyledButton>
             );
@@ -140,7 +162,7 @@ export function ItemsStep({ menu, cart, quote, onAdd, onChangeQuantity, onNext }
             style={{ minWidth: 0 }}
           >
             <Text size="sm" c="dimmed" lh={1.2}>{itemCount} {itemCount === 1 ? 'item' : 'items'} · view order</Text>
-            <Text fw={800} fz={24} lh={1.2} style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <Text className="display-number" fz={26} lh={1.15}>
               {priced ? formatMoney(priced.total) : '…'}
             </Text>
           </UnstyledButton>

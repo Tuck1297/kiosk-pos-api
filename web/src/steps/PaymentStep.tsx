@@ -89,7 +89,7 @@ export function PaymentStep({ order, onPaid, onOrderChange, onCompedInFull }: Pr
             <Text fw={600} c="dimmed">
               Total due · Order #{order.orderNumber}{order.guestName ? ` for ${order.guestName}` : ''}
             </Text>
-            <Title order={1} className="total-due" fz={{ base: 48, sm: 72 }} lh={1.1} style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <Title order={1} className="total-due" fz={{ base: 52, sm: 76 }} lh={1} mt={4}>
               {formatMoney(order.total)}
             </Title>
           </div>
@@ -128,7 +128,7 @@ export function PaymentStep({ order, onPaid, onOrderChange, onCompedInFull }: Pr
             onActiveChange={setTerminalActive}
           />
         ) : (
-          <Paper withBorder p="lg" radius="md">
+          <Paper className="panel" p="lg" radius="xl">
             <Stack gap="md">
               <NumberInput
                 label="Cash received"
@@ -221,8 +221,8 @@ function TenderOption({ selected, disabled, onSelect, icon, label, hint }: {
         alignItems: 'center',
         gap: 14,
         borderRadius: 'var(--mantine-radius-lg)',
-        border: `2px solid ${selected ? 'var(--mantine-primary-color-filled)' : 'var(--mantine-color-default-border)'}`,
-        background: selected ? 'var(--mantine-primary-color-light)' : 'var(--mantine-color-body)',
+        border: `2px solid ${selected ? 'var(--mantine-primary-color-filled)' : 'var(--register-line)'}`,
+        background: selected ? 'var(--mantine-primary-color-light)' : '#fff',
         color: selected ? 'var(--mantine-primary-color-filled)' : 'var(--mantine-color-dimmed)',
       }}
     >

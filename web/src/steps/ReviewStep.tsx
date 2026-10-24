@@ -36,7 +36,7 @@ export function ReviewStep({
             <Text fw={600} c="dimmed">Total due</Text>
             {repricing && <Loader size="xs" />}
           </Group>
-          <Title order={1} className="total-due" fz={{ base: 44, sm: 64 }} lh={1.1} style={{ fontVariantNumeric: 'tabular-nums', opacity: repricing ? 0.5 : 1 }}>
+          <Title order={1} className="total-due" fz={{ base: 52, sm: 76 }} lh={1} mt={4} style={{ opacity: repricing ? 0.5 : 1 }}>
             {formatMoney(quote.total)}
           </Title>
           <Text c="dimmed" mt={4}>Read the order back to the guest before taking payment.</Text>
@@ -140,7 +140,7 @@ function DiscountPanel({ quote, discount, notice, disabled, onApply, onRemove }:
   const applied = quote.discount;
   if (discount) {
     return (
-      <Paper withBorder p="md" radius="md" bg="teal.0">
+      <Paper withBorder p="md" radius="lg" bg="teal.0" style={{ borderColor: 'var(--mantine-color-teal-3)' }}>
         <Group justify="space-between" wrap="wrap" gap="sm">
           <Group gap="sm" wrap="nowrap">
             {discount.employeeId ? <IconId size={24} aria-hidden /> : <IconTicket size={24} aria-hidden />}
@@ -156,7 +156,7 @@ function DiscountPanel({ quote, discount, notice, disabled, onApply, onRemove }:
   }
 
   return (
-    <Paper withBorder p="md" radius="md">
+    <Paper className="panel" p="md" radius="lg">
       <form onSubmit={apply} noValidate>
         <Stack gap="sm">
           <Group justify="space-between" wrap="wrap" gap="sm">

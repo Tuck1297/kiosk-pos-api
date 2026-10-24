@@ -1,0 +1,117 @@
+/*
+ * Register look: tokens and the few treatments Mantine's theme object can't express.
+ */
+:root {
+  --register-canvas: #f3f6fa;  /* page background: airy, cool */
+  --register-line: #dce3ec;    /* borders and the ticket's tear line */
+  --register-ink: #1b2a41;     /* text, the card reader's screen */
+  --register-marigold: #f2a900;
+
+  /* Menu categories, like the lands on a park map. Dark enough for text on white. */
+  --cat-ENTREE: #c92a2a;
+  --cat-SNACK: #a86400;
+  --cat-DESSERT: #a61e4d;
+  --cat-BEVERAGE: #1864ab;
+  --cat-MERCHANDISE: #6741d9;
+}
+
+body {
+  background: var(--register-canvas);
+  color: var(--register-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Big money: the display face, tight and with figures that don't jump as they change. */
+.display-number,
+.total-due {
+  font-family: var(--mantine-font-family-headings);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Panels: white on the canvas, a hairline edge, no drop shadow. */
+.panel {
+  background: #fff;
+  border: 1px solid var(--register-line);
+}
+
+/* The order is an admission ticket: a perforated tear line with notches before the totals. */
+.ticket {
+  overflow: hidden;
+}
+.ticket-perf {
+  position: relative;
+  margin: var(--mantine-spacing-xs) calc(-1 * var(--mantine-spacing-lg));
+  border-top: 2px dashed var(--register-line);
+}
+.ticket-perf::before,
+.ticket-perf::after {
+  content: '';
+  position: absolute;
+  top: -12px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--register-canvas);
+  border: 1px solid var(--register-line);
+}
+.ticket-perf::before {
+  left: -12px;
+}
+.ticket-perf::after {
+  right: -12px;
+}
+
+/* Menu tiles: category color marks the tile; the tile lifts slightly while pressed. */
+.menu-tile {
+  border: 1px solid var(--register-line);
+  border-radius: var(--mantine-radius-lg);
+  background: #fff;
+  transition: transform 80ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.menu-tile[data-in-cart] {
+  border-color: var(--mantine-primary-color-filled);
+  box-shadow: inset 0 0 0 1px var(--mantine-primary-color-filled);
+}
+.menu-tile:not(:disabled):active {
+  transform: scale(0.98);
+}
+.menu-tile:focus-visible {
+  outline: 3px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+}
+.menu-tile:disabled {
+  background: transparent;
+  border-style: dashed;
+}
+
+.category-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* In-cart count: marigold, so "already added" reads at a glance. */
+.cart-count {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 14px;
+  background: var(--register-marigold);
+  color: var(--register-ink);
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu-tile,
+  .reader-screen {
+    transition: none !important;
+  }
+}

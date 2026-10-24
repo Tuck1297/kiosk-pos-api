@@ -58,7 +58,7 @@
   padding-left: calc(var(--mantine-spacing-md) + env(safe-area-inset-left));
   padding-right: calc(var(--mantine-spacing-md) + env(safe-area-inset-right));
   background: var(--mantine-color-body);
-  border-top: 1px solid var(--mantine-color-default-border);
+  border-top: 1px solid var(--register-line);
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
 }
 
