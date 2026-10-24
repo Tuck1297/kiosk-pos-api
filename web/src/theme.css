@@ -49,18 +49,18 @@ body {
 .ticket-perf::after {
   content: '';
   position: absolute;
-  top: -12px;
-  width: 22px;
-  height: 22px;
+  top: -15px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: var(--register-canvas);
   border: 1px solid var(--register-line);
 }
 .ticket-perf::before {
-  left: -12px;
+  left: -15px;
 }
 .ticket-perf::after {
-  right: -12px;
+  right: -15px;
 }
 
 /* Menu tiles: category color marks the tile; the tile lifts slightly while pressed. */

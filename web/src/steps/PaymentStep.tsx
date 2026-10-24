@@ -222,7 +222,7 @@ function TenderOption({ selected, disabled, onSelect, icon, label, hint }: {
         gap: 14,
         borderRadius: 'var(--mantine-radius-lg)',
         border: `2px solid ${selected ? 'var(--mantine-primary-color-filled)' : 'var(--register-line)'}`,
-        background: selected ? 'var(--mantine-primary-color-light)' : '#fff',
+        background: selected ? 'var(--mantine-color-cyan-0)' : '#fff',
         color: selected ? 'var(--mantine-primary-color-filled)' : 'var(--mantine-color-dimmed)',
       }}
     >
