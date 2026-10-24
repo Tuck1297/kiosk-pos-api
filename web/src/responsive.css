@@ -9,6 +9,32 @@
   padding-right: env(safe-area-inset-right);
 }
 
+/* Step layout: one column on phones; main + order side by side from tablet width up. */
+.step-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--mantine-spacing-md);
+  align-items: start;
+}
+.step-main {
+  min-width: 0;
+}
+@media (min-width: 48em) {
+  .step-layout {
+    grid-template-columns: minmax(0, 7fr) minmax(300px, 5fr);
+  }
+}
+@media (min-width: 62em) {
+  .step-layout {
+    gap: var(--mantine-spacing-xl);
+  }
+}
+@media (min-width: 75em) {
+  .step-layout {
+    grid-template-columns: minmax(0, 2fr) minmax(360px, 1fr);
+  }
+}
+
 /* Side column (order summary): from tablet width up it stays in view while the main column scrolls,
    and scrolls inside itself when the screen is short (a phone or tablet held sideways). */
 @media (min-width: 48em) {
