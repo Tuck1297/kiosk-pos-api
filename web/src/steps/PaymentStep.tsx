@@ -89,7 +89,7 @@ export function PaymentStep({ order, onPaid, onOrderChange, onCompedInFull }: Pr
             <Text fw={600} c="dimmed">
               Total due · Order #{order.orderNumber}{order.guestName ? ` for ${order.guestName}` : ''}
             </Text>
-            <Title order={1} fz={{ base: 48, sm: 72 }} lh={1.1} style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <Title order={1} className="total-due" fz={{ base: 48, sm: 72 }} lh={1.1} style={{ fontVariantNumeric: 'tabular-nums' }}>
               {formatMoney(order.total)}
             </Title>
           </div>

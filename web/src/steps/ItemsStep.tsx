@@ -74,6 +74,7 @@ export function ItemsStep({ menu, cart, quote, onAdd, onChangeQuantity, onNext }
                 onClick={() => onAdd(item.id)}
                 disabled={!item.available}
                 aria-label={item.available ? `Add ${item.name}, ${formatMoney(item.price)}` : `${item.name}, sold out`}
+                className="menu-tile"
                 mih={{ base: 108, sm: 132 }}
                 p={{ base: 'sm', sm: 'md' }}
                 style={{

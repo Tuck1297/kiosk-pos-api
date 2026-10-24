@@ -36,7 +36,7 @@ export function ReviewStep({
             <Text fw={600} c="dimmed">Total due</Text>
             {repricing && <Loader size="xs" />}
           </Group>
-          <Title order={1} fz={{ base: 44, sm: 64 }} lh={1.1} style={{ fontVariantNumeric: 'tabular-nums', opacity: repricing ? 0.5 : 1 }}>
+          <Title order={1} className="total-due" fz={{ base: 44, sm: 64 }} lh={1.1} style={{ fontVariantNumeric: 'tabular-nums', opacity: repricing ? 0.5 : 1 }}>
             {formatMoney(quote.total)}
           </Title>
           <Text c="dimmed" mt={4}>Read the order back to the guest before taking payment.</Text>

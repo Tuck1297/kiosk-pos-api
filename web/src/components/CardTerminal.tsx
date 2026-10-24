@@ -107,7 +107,7 @@ export function CardTerminal({ amount, disabled, charge, onApproved, onActiveCha
                 disabled={!canPresent}
               />
             </Group>
-            <SimpleGrid cols={{ base: 2, xs: 3, sm: 2, md: 3, xl: 5 }} spacing="sm">
+            <SimpleGrid cols={{ base: 2, xs: 3, xl: 5 }} spacing="sm">
               {WALLET.map((card) => (
                 <UnstyledButton
                   key={card.token}
@@ -182,6 +182,7 @@ function ReaderScreen({ amount, phase, method }: { amount: Money; phase: Phase; 
     <Box
       role="status"
       aria-live="polite"
+      className="reader-screen"
       p={{ base: 'md', sm: 'lg' }}
       mih={{ base: 132, sm: 156 }}
       style={{ background: tone, color: 'white', borderRadius: 14, transition: 'background 200ms ease' }}

@@ -77,9 +77,25 @@
   display: none;
 }
 
-/* Landscape phones: very little height, so trim vertical padding everywhere. */
+.summary-footer {
+  position: sticky;
+  bottom: 0;
+  padding-top: var(--mantine-spacing-xs);
+  background: var(--mantine-color-body);
+}
+
+/* Landscape phones: very little height, so shrink the big type and tiles. */
 @media (orientation: landscape) and (max-height: 32em) {
   .register-main {
     padding-top: var(--mantine-spacing-xs) !important;
+  }
+  .total-due {
+    font-size: 40px !important;
+  }
+  .menu-tile {
+    min-height: 92px !important;
+  }
+  .reader-screen {
+    min-height: 0 !important;
   }
 }

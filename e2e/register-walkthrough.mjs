@@ -28,7 +28,7 @@ for (const [screen, options] of Object.entries(SCREENS)) {
   const context = await browser.newContext(options);
   const page = await context.newPage();
   try {
-    await walkthrough(page, `${OUT}/${screen}`);
+    await walkthrough(page, `${OUT}/${screen}`, screen === 'desktop');
     console.log(`${screen}: ok`);
   } catch (e) {
     failed = true;
@@ -41,20 +41,27 @@ for (const [screen, options] of Object.entries(SCREENS)) {
 await browser.close();
 if (failed) process.exitCode = 1;
 
-async function walkthrough(page, dir) {
+async function walkthrough(page, dir, fullPage) {
   await mkdir(dir, { recursive: true });
   page.setDefaultTimeout(15_000);
   const consoleErrors = [];
   page.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text()));
 
+  // Desktop: the whole page. Phones and tablets: exactly what's on screen (fixed bars and pinned
+  // panels where they really are), scrolled to the part of the page that matters.
   let n = 0;
-  async function shot(name) {
+  async function shot(name, focus) {
+    if (focus) {
+      await focus.first().evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    } else {
+      await page.evaluate(() => window.scrollTo(0, 0));
+    }
     await page.waitForTimeout(300); // let transitions settle
     // Nothing should make a phone scroll sideways.
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     if (overflow > 1) throw new Error(`${name}: page is ${overflow}px wider than the screen`);
     const file = `${dir}/${String(++n).padStart(2, '0')}-${name}.png`;
-    await page.screenshot({ path: file, fullPage: true });
+    await page.screenshot({ path: file, fullPage });
     console.log('saved', file);
   }
 
@@ -85,7 +92,7 @@ async function walkthrough(page, dir) {
   await addItem('Frozen Lemonade');
   await pricesSettled();
   await page.getByText('$22.35').first().waitFor(); // 2099 + 6.5% tax
-  await shot('cart');
+  await shot('cart', page.getByText('Current order'));
 
   await button('Review order').click();
   await page.getByLabel('Guest name').fill('Maya');
@@ -106,17 +113,17 @@ async function walkthrough(page, dir) {
 
   await button(/^Visa ending 0002/).click();
   await page.getByText('Declined', { exact: true }).waitFor();
-  await shot('card-declined');
+  await shot('card-declined', page.getByRole('status'));
 
   await button('Key in card number').click();
   await page.getByLabel('Card number').fill('4242424242424242');
   await page.getByLabel('Expiry').fill('1229');
   await page.getByLabel('CVC').fill('123');
-  await shot('key-in-card');
+  await shot('key-in-card', page.getByLabel('Expiry'));
 
   await button('Charge card').click();
   await page.getByText('Approved', { exact: true }).waitFor();
-  await shot('card-approved');
+  await shot('card-approved', page.getByRole('status'));
 
   await page.getByText(/is paid/).waitFor();
   await page.getByText(/Visa ending 4242/).waitFor();
@@ -143,7 +150,7 @@ async function walkthrough(page, dir) {
 
   await page.getByRole('radio', { name: /^Cash/ }).click();
   await page.getByRole('group', { name: 'Quick cash amounts' }).getByRole('button').last().click();
-  await shot('payment-cash');
+  await shot('payment-cash', page.getByLabel('Cash received'));
 
   await button('Complete cash sale').click();
   await page.getByText('Change due').waitFor();
