@@ -1,5 +1,6 @@
 package io.github.tuck1297.kioskpos.common;
 
+import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -77,6 +78,27 @@ public class ApiException extends RuntimeException {
     public static ApiException validation(String code, String field, String message) {
         return new ApiException(HttpStatus.BAD_REQUEST, code, "Validation failed", field + " " + message)
                 .with("errors", List.of(Map.of("field", field, "message", message)));
+    }
+
+    public static ApiException invalidCredentials() {
+        return new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Sign-in failed",
+                "Employee ID or PIN not recognized.");
+    }
+
+    public static ApiException accountLocked(OffsetDateTime until) {
+        return new ApiException(HttpStatus.LOCKED, "ACCOUNT_LOCKED", "Account locked",
+                "Too many wrong PINs. Try again after the lock expires.")
+                .with("lockedUntil", until == null ? null : until.toString());
+    }
+
+    /** Deliberately the same for unknown ID, wrong PIN and not-a-manager. */
+    public static ApiException managerApprovalFailed() {
+        return new ApiException(HttpStatus.FORBIDDEN, "MANAGER_APPROVAL_FAILED", "Manager approval failed",
+                "Manager ID or PIN not accepted.");
+    }
+
+    public static ApiException compNotAllowed(String detail) {
+        return new ApiException(HttpStatus.CONFLICT, "COMP_NOT_ALLOWED", "Comp not allowed", detail);
     }
 
     public static ApiException paymentDeclined(String declineCode, UUID paymentId) {

@@ -19,8 +19,15 @@ docker compose up -d --build
 
 Open **http://localhost:8080** for the register; the API is at `http://localhost:8080/v1`. This starts
 everything: Postgres, PgBouncer, Redis, 3 API replicas and an nginx gateway that serves the register and
-load-balances the API. Demo locations and menu load automatically. In the demo card reader, the 4242 card
-approves and the 0002 card declines.
+load-balances the API. Demo data loads automatically:
+
+| Employee ID | PIN | Role |
+|---|---|---|
+| `C2001` | `1111` | Cashier (sign in with this) |
+| `M1001` | `2468` | Manager (approves comps) |
+| `M1002` | `1357` | Manager |
+
+In the demo card reader, the 4242 card approves and the 0002 card declines.
 
 ```bash
 docker compose up -d --scale api=6                 # more API replicas
@@ -43,8 +50,13 @@ mvn verify                                            # tests (start their own P
 
 ## The register (`web/`)
 
-A guided checkout for the cashier at the window: **Items → Review → Payment**.
+A guided checkout for the cashier at the window: **Sign in → Items → Review → Payment**.
 
+- **Sign-in** with employee ID + PIN. The session is an `HttpOnly`, `SameSite=Strict` cookie the page's
+  JavaScript can't read; if it expires mid-shift, the register returns to sign-in.
+- **Comps** with manager approval: comp one item or the whole order, with a reason. A manager enters
+  their own ID + PIN on the cashier's register; the server re-prices the order and records who approved
+  it. An order comped to $0.00 closes without payment.
 - **The UI never computes money.** It sends menu item ids and quantities; every price, line total,
   tax amount, total and cash change it shows comes from the API (`POST /orders/quote`,
   `POST /orders`, `POST /orders/{id}/payments`).
@@ -57,14 +69,20 @@ A guided checkout for the cashier at the window: **Items → Review → Payment*
 
 ## Endpoints (v1)
 
+Every endpoint except `/health` and `/auth/login` needs the session cookie, and every change request
+needs the `X-Kiosk-Register: 1` header (CSRF protection).
+
 | Method | Path | Status |
 |---|---|---|
-| GET | `/health` | ✅ |
+| GET | `/health` | ✅ public |
+| POST | `/auth/login` | ✅ sets the HttpOnly session cookie; 5 wrong PINs lock for 15 min |
+| POST | `/auth/logout`, GET `/auth/me` | ✅ |
 | GET | `/locations`, `/locations/{id}` | ✅ includes the location's tax rate |
 | GET | `/locations/{id}/menu-items` | ✅ filter by `available`, `category` |
 | POST | `/orders/quote` | ✅ server-side pricing, nothing stored |
 | POST | `/orders` | ✅ `Idempotency-Key`; snapshots prices and tax rate |
 | GET | `/orders/{id}` | ✅ returns `ETag` |
+| POST | `/orders/{id}/comps` | ✅ manager ID + PIN; item or whole order; tax re-computed |
 | POST | `/orders/{id}/payments` | ✅ `Idempotency-Key` + `If-Match`; cash change, mock card |
 | GET | `/orders/{id}/payments` | ✅ every attempt, including declines |
 | POST | `/locations/{id}/menu-items` | 🚧 |
@@ -77,6 +95,22 @@ A guided checkout for the cashier at the window: **Items → Review → Payment*
 
 ## Design decisions
 
+- **Request guards.** Every request body is checked before any controller or service code runs: first
+  against the OpenAPI schema (types, required fields, patterns), then by a `RequestGuard` for its type
+  (`guard/`) for rules that span fields, such as "card payments need a card token and no cash". Guards
+  plug into Spring's binding, so adding one is just adding a bean; failures come back as
+  `400 VALIDATION_FAILED` listing every bad field.
+- **Stateless cookie sessions.** The `kiosk_session` cookie is signed with HMAC-SHA256 by a key every
+  replica shares, so any replica verifies it without a database or Redis lookup. `HttpOnly` keeps it away
+  from JavaScript, `SameSite=Strict` plus the required `X-Kiosk-Register` header stop cross-site request
+  forgery. Trade-off: a single session can't be revoked before its 12-hour expiry; rotating the key signs
+  everyone out.
+- **PINs** are bcrypt hashes. The slow comparison runs without holding a row lock, and failed attempts are
+  counted with one atomic `UPDATE`, so 500 registers signing in at shift change never queue on a lock and
+  parallel wrong guesses are all counted.
+- **Comps are audit records.** `order_comp` rows are insert-only, with the approving manager, the
+  signed-in staff member who asked, reason and amount. The database allows one comp per item and one
+  whole-order comp per order, and checks `total = subtotal - comps + tax`.
 - **One pricing path.** `PricingService` is the only code that computes prices and tax; the quote and
   order endpoints both call it, so a quote can never disagree with the order it becomes.
 - **Cached reads, authoritative writes.** Menu, location and tax snapshots are cached in Redis for
@@ -101,6 +135,10 @@ A guided checkout for the cashier at the window: **Items → Review → Payment*
 openapi.yaml                       API contract (source of truth)
 src/main/java/.../kioskpos/
   web/          controllers implementing the generated *Api interfaces (served under /v1)
+  guard/        RequestGuards: cross-field request rules, run before controllers
+  auth/         session cookie signing, auth + CSRF filter, current staff
+  staff/        cashiers and managers, PIN checks with lockout
+  comp/         manager-approved comps
   pricing/      PricingService: prices, line totals, tax, totals
   order/        orders + order lines, create with idempotency
   payment/      payments, mock card processor, cash change
@@ -120,7 +158,7 @@ docs/SCALING.md                    capacity math and scaling design
 ## Roadmap
 
 1. Cancel/void and the kitchen status flow (`PUT /orders/{id}/status`)
-2. JWT auth (`GUEST_APP` / `STAFF` roles)
+2. Comp and void reports per manager (the `ix_comp_approver` index is in place for it)
 3. PHP client SDK
 4. CI: SBOM (CycloneDX) and open-source license checks
 5. Scaling next steps (read replica, Redis HA, partitioning): see [docs/SCALING.md](docs/SCALING.md)

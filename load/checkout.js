@@ -1,6 +1,6 @@
 // 500 cashier registers ringing up sales, exactly as the register UI does:
 //
-//   load menu → add items (each add re-prices the cart: POST /orders/quote)
+//   sign in once (HttpOnly session cookie) → load menu → add items (each add re-prices the cart: POST /orders/quote)
 //   → create order (Idempotency-Key) → pay (cash, card, or a declined card then cash)
 //
 // Run with the stack up:  docker compose --profile loadtest run --rm k6
@@ -45,10 +45,18 @@ export const options = {
     'http_req_duration{name:quote}': ['p(95)<300'],
     'http_req_duration{name:create_order}': ['p(95)<600'],
     'http_req_duration{name:pay}': ['p(95)<600'],
+    // bcrypt makes sign-in deliberately slow; it happens once per shift, not per sale.
+    'http_req_duration{name:login}': ['p(95)<2000'],
   },
 };
 
-const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json' };
+// Every request carries the CSRF header, like the register does. The session cookie from
+// sign-in is kept in each virtual register's own cookie jar.
+const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Kiosk-Register': '1' };
+const CASHIER = { employeeId: __ENV.CASHIER_ID || 'C2001', pin: __ENV.CASHIER_PIN || '1111' };
+
+// Per virtual register: sign in once at the start of its shift.
+let signedIn = false;
 
 function uuid() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -69,6 +77,14 @@ function post(path, body, name, headers = {}) {
 }
 
 export default function () {
+  if (!signedIn) {
+    const login = post('/auth/login', CASHIER, 'login');
+    if (!check(login, { 'sign in 200': (r) => r.status === 200 })) {
+      think(1, 3);
+      return;
+    }
+    signedIn = true;
+  }
   let serverMs = 0;
 
   // The register reloads the menu after every sale (served from Redis).
@@ -169,7 +185,7 @@ export function handleSummary(data) {
     '',
     'Latency p50 / p95 / p99:',
   ];
-  for (const name of ['menu', 'quote', 'create_order', 'pay']) {
+  for (const name of ['login', 'menu', 'quote', 'create_order', 'pay']) {
     const key = `http_req_duration{name:${name}}`;
     lines.push(`  ${name.padEnd(13)} ${fmt(p(key, 'med'))} / ${fmt(p(key, 'p(95)'))} / ${fmt(p(key, 'p(99)'))}`);
   }

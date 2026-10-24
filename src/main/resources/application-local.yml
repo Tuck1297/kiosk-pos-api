@@ -1,5 +1,12 @@
 # Local development: mvn spring-boot:run -Dspring-boot.run.profiles=local
-# Loads demo locations and menu items on top of the schema.
+# Loads demo locations, menu items and staff on top of the schema.
 spring:
   flyway:
     locations: classpath:db/migration,classpath:db/seed
+
+kiosk:
+  auth:
+    # Development-only key. Never use it anywhere real.
+    token-secret: local-dev-only-signing-key-0123456789abcdef
+    # Local dev runs over plain HTTP.
+    cookie-secure: false

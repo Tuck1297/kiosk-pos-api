@@ -9,6 +9,7 @@ import io.github.tuck1297.kioskpos.api.model.PaymentStatus;
 import io.github.tuck1297.kioskpos.api.model.TenderType;
 import io.github.tuck1297.kioskpos.common.ApiException;
 import io.github.tuck1297.kioskpos.common.NotFoundException;
+import io.github.tuck1297.kioskpos.guard.IfMatch;
 import io.github.tuck1297.kioskpos.idempotency.IdempotencyStore;
 import io.github.tuck1297.kioskpos.idempotency.RequestFingerprint;
 import io.github.tuck1297.kioskpos.order.OrderEntity;
@@ -60,7 +61,7 @@ public class PaymentService {
         }
 
         OrderEntity order = orders.findById(orderId).orElseThrow(() -> new NotFoundException("Order", orderId));
-        if (!order.getVersion().equals(parseIfMatch(ifMatch))) {
+        if (!order.getVersion().equals(IfMatch.version(ifMatch))) {
             throw ApiException.staleVersion(order.getVersion());
         }
         if (!OrderEntity.OPEN.equals(order.getStatus())) {
@@ -68,31 +69,20 @@ public class PaymentService {
                     + ". Only OPEN orders can be paid.");
         }
 
+        // Which fields each tender needs was checked by PaymentRequestGuard before this ran.
+        // Whether the cash covers the total depends on the order, so that check lives here.
         OffsetDateTime now = OffsetDateTime.now();
         long total = order.getTotalCents();
         PaymentEntity payment;
         if (request.getTenderType() == TenderType.CASH) {
-            Long tendered = request.getCashTenderedCents();
-            if (tendered == null) {
-                throw ApiException.validation("VALIDATION_FAILED", "cashTenderedCents", "is required for cash payments");
-            }
-            if (request.getCardToken() != null) {
-                throw ApiException.validation("VALIDATION_FAILED", "cardToken", "must not be sent for cash payments");
-            }
+            long tendered = request.getCashTenderedCents();
             if (tendered < total) {
                 throw ApiException.validation("INSUFFICIENT_CASH", "cashTenderedCents",
                         "must be at least the order total of " + total + " cents");
             }
             payment = PaymentEntity.cash(orderId, total, order.getCurrency(), tendered, now);
         } else {
-            String token = request.getCardToken();
-            if (token == null || token.isBlank()) {
-                throw ApiException.validation("VALIDATION_FAILED", "cardToken", "is required for card payments");
-            }
-            if (request.getCashTenderedCents() != null) {
-                throw ApiException.validation("VALIDATION_FAILED", "cashTenderedCents", "must not be sent for card payments");
-            }
-            MockCardProcessor.CardResult card = processor.charge(token, total);
+            MockCardProcessor.CardResult card = processor.charge(request.getCardToken(), total);
             payment = card.approved()
                     ? PaymentEntity.cardCaptured(orderId, total, order.getCurrency(), card.last4(), card.reference(), now)
                     : PaymentEntity.cardDeclined(orderId, total, order.getCurrency(), card.last4(), card.declineCode(), now);
@@ -137,19 +127,5 @@ public class PaymentService {
                 .processorReference(p.getProcessorReference())
                 .declineCode(p.getDeclineCode())
                 .createdAt(p.getCreatedAt());
-    }
-
-    /** Accepts {@code "3"}, {@code W/"3"} or {@code 3}. */
-    static int parseIfMatch(String ifMatch) {
-        String value = ifMatch == null ? "" : ifMatch.strip();
-        if (value.startsWith("W/")) {
-            value = value.substring(2);
-        }
-        value = value.replace("\"", "");
-        try {
-            return Integer.parseInt(value);
-        } catch (NumberFormatException e) {
-            throw ApiException.validation("VALIDATION_FAILED", "If-Match", "must be the order's ETag, e.g. \"0\"");
-        }
     }
 }

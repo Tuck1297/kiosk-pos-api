@@ -13,8 +13,12 @@
 # Load test with 500 simulated registers:
 #   docker compose --profile loadtest run --rm k6
 #
-# Demo credentials are for local use only; override POSTGRES_PASSWORD (and
-# deploy/pgbouncer/userlist.txt) anywhere real.
+# Demo staff for the register: cashier C2001 / PIN 1111, managers M1001 / 2468 and
+# M1002 / 1357 (comps need a manager).
+#
+# Demo credentials are for local use only; anywhere real, override POSTGRES_PASSWORD
+# (and deploy/pgbouncer/userlist.txt), set AUTH_TOKEN_SECRET, serve HTTPS and set
+# AUTH_COOKIE_SECURE=true.
 
 name: kiosk-pos
 
@@ -102,6 +106,11 @@ services:
       SPRING_FLYWAY_LOCATIONS: classpath:db/migration,classpath:db/seed
       REDIS_HOST: redis
       MENU_CACHE_TTL: 60s
+      # Signs the session cookie. Every replica gets the same key, so a register signed
+      # in through one replica is recognized by all of them.
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:-compose-dev-only-signing-key-change-me-0123456789}
+      # This stack serves plain HTTP on localhost. Behind HTTPS, set this to true.
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
     depends_on:
       postgres:
         condition: service_healthy

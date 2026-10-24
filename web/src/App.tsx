@@ -1,8 +1,12 @@
-import { Alert, Box, Center, Group, Loader, Stepper, Text } from '@mantine/core';
-import { IconBuildingStore } from '@tabler/icons-react';
+import { Alert, Box, Button, Center, Group, Loader, Stepper, Text } from '@mantine/core';
+import { IconBuildingStore, IconLogout } from '@tabler/icons-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError, api, describeError, type Location, type MenuItem, type Order, type Payment } from './api/client';
+import {
+  ApiError, api, describeError, setUnauthorizedHandler,
+  type Location, type MenuItem, type Order, type Payment, type Staff,
+} from './api/client';
 import { addItem, changeQuantity, toLineRequests, type CartLine } from './cart';
+import { SignInScreen } from './components/SignInScreen';
 import { DoneStep } from './steps/DoneStep';
 import { ItemsStep } from './steps/ItemsStep';
 import { PaymentStep } from './steps/PaymentStep';
@@ -17,7 +21,38 @@ const REVIEW = 1;
 const PAYMENT = 2;
 const DONE = 3;
 
+/**
+ * Signed out: the sign-in screen. Signed in: the register. The session itself lives in an
+ * HttpOnly cookie this code can't read, so "am I signed in?" is answered by GET /auth/me.
+ */
 export function App() {
+  // undefined while checking, null when signed out
+  const [staff, setStaff] = useState<Staff | null | undefined>(undefined);
+
+  useEffect(() => {
+    // Any 401 (e.g. the session expired mid-shift) returns to the sign-in screen.
+    setUnauthorizedHandler(() => setStaff(null));
+    api.me().then(setStaff).catch(() => setStaff(null));
+  }, []);
+
+  async function signOut() {
+    try {
+      await api.logout();
+    } finally {
+      setStaff(null);
+    }
+  }
+
+  if (staff === undefined) {
+    return <Center mih="100vh"><Loader /></Center>;
+  }
+  if (staff === null) {
+    return <SignInScreen onSignedIn={setStaff} />;
+  }
+  return <Register staff={staff} onSignOut={signOut} />;
+}
+
+function Register({ staff, onSignOut }: { staff: Staff; onSignOut: () => void }) {
   const [step, setStep] = useState(ITEMS);
   const [location, setLocation] = useState<Location | null>(null);
   const [menu, setMenu] = useState<MenuItem[] | null>(null);
@@ -108,6 +143,16 @@ export function App() {
             <Stepper.Step label="Payment" />
           </Stepper>
         </Box>
+        <Group gap="sm">
+          <div style={{ textAlign: 'right' }}>
+            <Text fw={600} lh={1.2}>{staff.name}</Text>
+            <Text size="sm" c="dimmed" lh={1.2}>{staff.role === 'MANAGER' ? 'Manager' : 'Cashier'} · {staff.employeeId}</Text>
+          </div>
+          <Button variant="default" leftSection={<IconLogout size={16} />} onClick={onSignOut}
+                  disabled={step === PAYMENT}>
+            Sign out
+          </Button>
+        </Group>
       </Group>
 
       <Box component="main" p="lg">
@@ -140,9 +185,15 @@ export function App() {
               setPayment(p);
               setStep(DONE);
             }}
+            onOrderChange={setOrder}
+            onCompedInFull={(o) => {
+              setOrder(o);
+              setPayment(null);
+              setStep(DONE);
+            }}
           />
         )}
-        {step === DONE && order && payment && (
+        {step === DONE && order && (
           <DoneStep order={order} payment={payment} onNextSale={nextSale} />
         )}
       </Box>

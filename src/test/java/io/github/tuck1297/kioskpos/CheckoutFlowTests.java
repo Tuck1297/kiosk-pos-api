@@ -3,43 +3,26 @@ package io.github.tuck1297.kioskpos;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jayway.jsonpath.JsonPath;
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.test.context.ActiveProfiles;
 
 /**
  * The cashier's checkout end to end: menu, quote, create order, pay. Runs against a real
  * server and Postgres (Testcontainers) with the seeded Lakeside Snack Stand at 6.50% tax.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Import(TestcontainersConfiguration.class)
-@ActiveProfiles("local")
-class CheckoutFlowTests {
+class CheckoutFlowTests extends ApiTestSupport {
 
-    static final String LAKESIDE = "5b1f6a2e-8c1d-4f3a-9e7b-2d4c6a8e0f11";
     static final String PRETZEL = "9a3e7c51-2b4d-4e6f-8a1c-3d5e7f9b1c22";   // $7.50
     static final String LEMONADE = "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e33";  // $5.99
     static final String CHURRO = "3e4f5a6b-7c8d-4e9f-0a1b-2c3d4e5f6a55";    // sold out
-    static final String PIN = "4f5a6b7c-8d9e-4f0a-1b2c-3d4e5f6a7b66";       // other location
+    static final String COLLECTOR_PIN = "4f5a6b7c-8d9e-4f0a-1b2c-3d4e5f6a7b66";       // other location
 
     /** 2 pretzels + 1 lemonade = $20.99, tax $1.36, total $22.35 */
     static final String BASKET = """
             {"locationId":"%s","channel":"COUNTER","guestName":"Jordan","lines":[
               {"menuItemId":"%s","quantity":2},
               {"menuItemId":"%s","quantity":1,"note":"no ice"}]}""".formatted(LAKESIDE, PRETZEL, LEMONADE);
-
-    private final HttpClient http = HttpClient.newHttpClient();
-
-    @Value("${local.server.port}")
-    int port;
 
     @Test
     void menuListsOnlyAvailableItemsWhenAsked() throws Exception {
@@ -52,7 +35,7 @@ class CheckoutFlowTests {
 
     @Test
     void quoteComputesTotalsOnTheServer() throws Exception {
-        HttpResponse<String> res = post("/v1/orders/quote", BASKET.replace("\"channel\":\"COUNTER\",\"guestName\":\"Jordan\",", ""), null, null);
+        HttpResponse<String> res = post("/v1/orders/quote", BASKET.replace("\"channel\":\"COUNTER\",\"guestName\":\"Jordan\",", ""));
 
         assertThat(res.statusCode()).as(res.body()).isEqualTo(200);
         String body = res.body();
@@ -71,7 +54,7 @@ class CheckoutFlowTests {
         assertThat(soldOut.statusCode()).as(soldOut.body()).isEqualTo(409);
         assertThat(soldOut.body()).contains("ITEM_UNAVAILABLE", "sold out");
 
-        HttpResponse<String> elsewhere = post("/v1/orders/quote", quoteOf(PIN), null, null);
+        HttpResponse<String> elsewhere = post("/v1/orders/quote", quoteOf(COLLECTOR_PIN), null, null);
         assertThat(elsewhere.statusCode()).as(elsewhere.body()).isEqualTo(409);
         assertThat(elsewhere.body()).contains("ITEM_UNAVAILABLE");
     }
@@ -96,6 +79,7 @@ class CheckoutFlowTests {
         assertThat(JsonPath.<Integer>read(created.body(), "$.total.amountCents")).isEqualTo(2235);
         assertThat(JsonPath.<Integer>read(created.body(), "$.taxRateBps")).isEqualTo(650);
         assertThat(JsonPath.<String>read(created.body(), "$.status")).isEqualTo("OPEN");
+        assertThat(JsonPath.<String>read(created.body(), "$.createdBy.employeeId")).isEqualTo(CASHIER);
         String etag = created.headers().firstValue("ETag").orElseThrow();
 
         // Same key, same body: same order back, not a second one.
@@ -171,25 +155,5 @@ class CheckoutFlowTests {
 
     private static String quoteOf(String menuItemId) {
         return "{\"locationId\":\"" + LAKESIDE + "\",\"lines\":[{\"menuItemId\":\"" + menuItemId + "\",\"quantity\":1}]}";
-    }
-
-    private HttpResponse<String> get(String path) throws IOException, InterruptedException {
-        return http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
-                .header("Accept", "application/json").GET().build(), HttpResponse.BodyHandlers.ofString());
-    }
-
-    private HttpResponse<String> post(String path, String json, String idempotencyKey, String ifMatch)
-            throws IOException, InterruptedException {
-        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(json));
-        if (idempotencyKey != null) {
-            b.header("Idempotency-Key", idempotencyKey);
-        }
-        if (ifMatch != null) {
-            b.header("If-Match", ifMatch);
-        }
-        return http.send(b.build(), HttpResponse.BodyHandlers.ofString());
     }
 }

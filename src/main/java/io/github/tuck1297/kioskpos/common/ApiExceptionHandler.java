@@ -3,6 +3,7 @@ package io.github.tuck1297.kioskpos.common;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -15,6 +16,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
@@ -91,6 +93,29 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     private static String parameterName(ConstraintViolation<?> violation) {
         String path = violation.getPropertyPath().toString();
         return path.substring(path.lastIndexOf('.') + 1);
+    }
+
+    /**
+     * A request body failed the schema checks or a {@code RequestGuard}: list every bad
+     * field, so the register can show exactly what to fix.
+     */
+    @Override
+    protected ResponseEntity<Object> handleMethodArgumentNotValid(
+            MethodArgumentNotValidException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        List<Map<String, String>> errors = new ArrayList<>();
+        ex.getBindingResult().getFieldErrors().forEach(e ->
+                errors.add(Map.of("field", e.getField(), "message", String.valueOf(e.getDefaultMessage()))));
+        ex.getBindingResult().getGlobalErrors().forEach(e ->
+                errors.add(Map.of("field", e.getObjectName(), "message", String.valueOf(e.getDefaultMessage()))));
+
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, errors.isEmpty()
+                ? "The request is invalid."
+                : errors.getFirst().get("field") + " " + errors.getFirst().get("message"));
+        problem.setTitle("Validation failed");
+        problem.setType(URI.create(PROBLEM_BASE + "validation-failed"));
+        problem.setProperty("code", "VALIDATION_FAILED");
+        problem.setProperty("errors", errors);
+        return handleExceptionInternal(ex, problem, headers, HttpStatus.BAD_REQUEST, request);
     }
 
     /** Adds {@code type} and {@code code} to the problems Spring raises itself (400, 404, 405, 415...). */

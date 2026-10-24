@@ -3,7 +3,11 @@ package io.github.tuck1297.kioskpos.order;
 import static io.github.tuck1297.kioskpos.common.ApiMappers.blankToNull;
 import static io.github.tuck1297.kioskpos.common.ApiMappers.money;
 
+import io.github.tuck1297.kioskpos.api.model.Comp;
+import io.github.tuck1297.kioskpos.api.model.CompReason;
 import io.github.tuck1297.kioskpos.api.model.CreateOrderRequest;
+import io.github.tuck1297.kioskpos.common.ApiMappers;
+import io.github.tuck1297.kioskpos.staff.StaffEntity;
 import io.github.tuck1297.kioskpos.api.model.Order;
 import io.github.tuck1297.kioskpos.api.model.OrderChannel;
 import io.github.tuck1297.kioskpos.api.model.OrderLine;
@@ -53,7 +57,7 @@ public class OrderService {
      * Idempotency-Key returns the same order instead of creating a second one.
      */
     @Transactional
-    public Order create(UUID idempotencyKey, CreateOrderRequest request) {
+    public Order create(UUID idempotencyKey, CreateOrderRequest request, UUID staffId) {
         String fingerprint = RequestFingerprint.of(CREATE_SCOPE, request.getLocationId(), request.getChannel(),
                 blankToNull(request.getGuestName()), linesFingerprint(request.getLines()));
         Optional<IdempotencyStore.StoredResult> earlier = idempotency.claim(CREATE_SCOPE, idempotencyKey, fingerprint);
@@ -71,7 +75,8 @@ public class OrderService {
         OffsetDateTime now = OffsetDateTime.now();
         OrderEntity order = new OrderEntity(UUID.randomUUID(), request.getLocationId(), orderNumber,
                 request.getChannel().getValue(), blankToNull(request.getGuestName()), priced.currency(),
-                priced.subtotalCents(), priced.taxRate().rateBps(), priced.taxCents(), priced.totalCents(), now);
+                priced.subtotalCents(), priced.taxRate().rateBps(), priced.taxCents(), priced.totalCents(),
+                staffId == null ? null : em.getReference(StaffEntity.class, staffId), now);
         short lineNo = 1;
         for (PricedLine line : priced.lines()) {
             order.addLine(new OrderLineEntity(UUID.randomUUID(), lineNo++, line.item().id(), line.item().sku(),
@@ -93,7 +98,7 @@ public class OrderService {
         return orders.findById(orderId).orElseThrow(() -> new NotFoundException("Order", orderId));
     }
 
-    /** Must be called inside a transaction: lines load lazily. */
+    /** Must be called inside a transaction: lines, comps and staff load lazily. */
     public static Order toApi(OrderEntity o) {
         String currency = o.getCurrency();
         List<OrderLine> lines = o.getLines().stream()
@@ -105,7 +110,19 @@ public class OrderService {
                         .quantity(l.getQuantity())
                         .unitPrice(money(l.getUnitPriceCents(), currency))
                         .lineTotal(money(l.getLineTotalCents(), currency))
-                        .note(l.getNote()))
+                        .note(l.getNote())
+                        .comped(o.isLineComped(l.getId())))
+                .collect(Collectors.toList());
+        List<Comp> comps = o.getComps().stream()
+                .map(c -> new Comp()
+                        .id(c.getId())
+                        .orderLineId(c.getOrderLineId())
+                        .reason(CompReason.fromValue(c.getReason()))
+                        .note(c.getNote())
+                        .amount(money(c.getAmountCents(), currency))
+                        .approvedBy(ApiMappers.staffRef(c.getApprovedBy()))
+                        .requestedBy(ApiMappers.staffRef(c.getRequestedBy()))
+                        .createdAt(c.getCreatedAt()))
                 .collect(Collectors.toList());
         return new Order()
                 .id(o.getId())
@@ -116,6 +133,9 @@ public class OrderService {
                 .status(OrderStatus.fromValue(o.getStatus()))
                 .lines(lines)
                 .subtotal(money(o.getSubtotalCents(), currency))
+                .compTotal(money(o.getCompCents(), currency))
+                .comps(comps)
+                .createdBy(ApiMappers.staffRef(o.getCreatedBy()))
                 .taxRateBps(o.getTaxRateBps())
                 .tax(money(o.getTaxCents(), currency))
                 .total(money(o.getTotalCents(), currency))

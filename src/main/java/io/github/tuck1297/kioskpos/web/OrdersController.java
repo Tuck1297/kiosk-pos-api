@@ -3,7 +3,10 @@ package io.github.tuck1297.kioskpos.web;
 import static io.github.tuck1297.kioskpos.common.ApiMappers.money;
 
 import io.github.tuck1297.kioskpos.api.OrdersApi;
+import io.github.tuck1297.kioskpos.api.model.CompRequest;
 import io.github.tuck1297.kioskpos.api.model.CreateOrderRequest;
+import io.github.tuck1297.kioskpos.auth.CurrentStaff;
+import io.github.tuck1297.kioskpos.comp.CompService;
 import io.github.tuck1297.kioskpos.api.model.Order;
 import io.github.tuck1297.kioskpos.api.model.OrderQuote;
 import io.github.tuck1297.kioskpos.api.model.QuoteLine;
@@ -17,6 +20,7 @@ import java.net.URI;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -30,11 +34,24 @@ public class OrdersController implements OrdersApi {
     private final MenuCatalog catalog;
     private final PricingService pricing;
     private final OrderService orders;
+    private final CompService comps;
+    private final CurrentStaff currentStaff;
 
-    public OrdersController(MenuCatalog catalog, PricingService pricing, OrderService orders) {
+    public OrdersController(MenuCatalog catalog, PricingService pricing, OrderService orders, CompService comps,
+                            CurrentStaff currentStaff) {
         this.catalog = catalog;
         this.pricing = pricing;
         this.orders = orders;
+        this.comps = comps;
+        this.currentStaff = currentStaff;
+    }
+
+    @Override
+    public ResponseEntity<Order> compOrder(UUID orderId, UUID idempotencyKey, String ifMatch, CompRequest compRequest) {
+        Order order = comps.comp(orderId, idempotencyKey, ifMatch, compRequest, currentStaff.get().staffId());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .eTag(String.valueOf(order.getVersion()))
+                .body(order);
     }
 
     /** Priced from the cached menu: the hottest read path, kept off the database. */
@@ -63,7 +80,7 @@ public class OrdersController implements OrdersApi {
 
     @Override
     public ResponseEntity<Order> createOrder(UUID idempotencyKey, CreateOrderRequest createOrderRequest) {
-        Order order = orders.create(idempotencyKey, createOrderRequest);
+        Order order = orders.create(idempotencyKey, createOrderRequest, currentStaff.get().staffId());
         return ResponseEntity.created(URI.create("/v1/orders/" + order.getId()))
                 .eTag(String.valueOf(order.getVersion()))
                 .body(order);

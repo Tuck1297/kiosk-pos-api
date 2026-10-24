@@ -1,9 +1,15 @@
 package io.github.tuck1297.kioskpos.order;
 
+import io.github.tuck1297.kioskpos.comp.OrderCompEntity;
+import io.github.tuck1297.kioskpos.staff.StaffEntity;
+import io.github.tuck1297.kioskpos.tax.TaxCalculator;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
@@ -11,6 +17,7 @@ import jakarta.persistence.Version;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Maps customer_order ("order" is a reserved word in SQL). */
@@ -48,11 +55,19 @@ public class OrderEntity {
     @Column(name = "tax_rate_bps", nullable = false, updatable = false)
     private int taxRateBps;
 
-    @Column(name = "tax_cents", nullable = false, updatable = false)
+    /** Recomputed when a comp lowers the taxable amount. */
+    @Column(name = "tax_cents", nullable = false)
     private long taxCents;
 
-    @Column(name = "total_cents", nullable = false, updatable = false)
+    @Column(name = "total_cents", nullable = false)
     private long totalCents;
+
+    @Column(name = "comp_cents", nullable = false)
+    private long compCents;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by", updatable = false)
+    private StaffEntity createdBy;
 
     @Column(name = "cancel_reason")
     private String cancelReason;
@@ -71,13 +86,20 @@ public class OrderEntity {
     @OrderBy("lineNo ASC")
     private List<OrderLineEntity> lines = new ArrayList<>();
 
+    /** Inserted through {@link #applyComp}; never updated or removed. */
+    @OneToMany(mappedBy = "order")
+    @OrderBy("createdAt ASC")
+    private List<OrderCompEntity> comps = new ArrayList<>();
+
     protected OrderEntity() {
         // for JPA
     }
 
     public OrderEntity(UUID id, UUID locationId, int orderNumber, String channel, String guestName, String currency,
-                       long subtotalCents, int taxRateBps, long taxCents, long totalCents, OffsetDateTime now) {
+                       long subtotalCents, int taxRateBps, long taxCents, long totalCents, StaffEntity createdBy,
+                       OffsetDateTime now) {
         this.id = id;
+        this.createdBy = createdBy;
         this.locationId = locationId;
         this.orderNumber = orderNumber;
         this.channel = channel;
@@ -100,6 +122,52 @@ public class OrderEntity {
     public void markPaid(OffsetDateTime now) {
         this.status = PAID;
         this.updatedAt = now;
+    }
+
+    public Optional<OrderLineEntity> line(UUID lineId) {
+        return lines.stream().filter(l -> l.getId().equals(lineId)).findFirst();
+    }
+
+    public boolean isLineComped(UUID lineId) {
+        return comps.stream().anyMatch(c -> lineId.equals(c.getOrderLineId()));
+    }
+
+    public boolean hasWholeOrderComp() {
+        return comps.stream().anyMatch(OrderCompEntity::isWholeOrder);
+    }
+
+    /** What a whole-order comp would take off: everything not already comped. */
+    public long uncompedSubtotalCents() {
+        return subtotalCents - compCents;
+    }
+
+    /**
+     * Records a comp and re-prices: tax is charged only on what's left after comps, using
+     * the rate this order was priced with. An order comped down to $0.00 has nothing left
+     * to collect, so it is closed as PAID.
+     */
+    public void applyComp(OrderCompEntity comp, OffsetDateTime now) {
+        comps.add(comp);
+        compCents = Math.addExact(compCents, comp.getAmountCents());
+        long taxable = subtotalCents - compCents;
+        taxCents = TaxCalculator.taxCents(taxable, taxRateBps);
+        totalCents = taxable + taxCents;
+        if (totalCents == 0) {
+            status = PAID;
+        }
+        updatedAt = now;
+    }
+
+    public long getCompCents() {
+        return compCents;
+    }
+
+    public StaffEntity getCreatedBy() {
+        return createdBy;
+    }
+
+    public List<OrderCompEntity> getComps() {
+        return comps;
     }
 
     public UUID getId() {

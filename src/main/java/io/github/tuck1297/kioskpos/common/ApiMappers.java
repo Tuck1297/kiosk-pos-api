@@ -4,6 +4,8 @@ import io.github.tuck1297.kioskpos.api.model.Location;
 import io.github.tuck1297.kioskpos.api.model.MenuCategory;
 import io.github.tuck1297.kioskpos.api.model.MenuItem;
 import io.github.tuck1297.kioskpos.api.model.Money;
+import io.github.tuck1297.kioskpos.api.model.StaffRef;
+import io.github.tuck1297.kioskpos.staff.StaffEntity;
 import io.github.tuck1297.kioskpos.api.model.TaxRate;
 import io.github.tuck1297.kioskpos.location.LocationEntity;
 import io.github.tuck1297.kioskpos.menu.MenuSnapshot;
@@ -69,6 +71,10 @@ public final class ApiMappers {
                 .price(money(i.priceCents(), currency))
                 .available(i.available())
                 .updatedAt(i.updatedAt());
+    }
+
+    public static StaffRef staffRef(StaffEntity s) {
+        return s == null ? null : new StaffRef().employeeId(s.getEmployeeId()).name(s.getName());
     }
 
     public static String blankToNull(String s) {

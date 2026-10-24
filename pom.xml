@@ -73,6 +73,12 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
+        <!-- bcrypt for staff PINs (just the crypto module, not the Spring Security filter chain) -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
         <!-- Used by the generated API interfaces -->
         <dependency>
             <groupId>jakarta.annotation</groupId>

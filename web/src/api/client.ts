@@ -14,6 +14,9 @@ export type Order = S['Order'];
 export type CreatePaymentRequest = S['CreatePaymentRequest'];
 export type Payment = S['Payment'];
 export type Problem = S['Problem'];
+export type Staff = S['Staff'];
+export type CompReason = S['CompReason'];
+export type CompRequest = S['CompRequest'];
 
 /** The API answered with an error (problem+json). */
 export class ApiError extends Error {
@@ -33,13 +36,23 @@ export class ApiError extends Error {
 
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 
+/** Called when any request comes back 401, e.g. the session cookie expired mid-shift. */
+let onUnauthorized: () => void = () => {};
+export function setUnauthorizedHandler(handler: () => void) {
+  onUnauthorized = handler;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set('Accept', 'application/json');
+  // CSRF protection: the API refuses changes without this header, and another site's page
+  // can't add it to a request.
+  headers.set('X-Kiosk-Register', '1');
   if (init.body) {
     headers.set('Content-Type', 'application/json');
   }
-  const res = await fetch(`${BASE}/v1${path}`, { ...init, headers });
+  // The HttpOnly session cookie is sent by the browser automatically (same origin).
+  const res = await fetch(`${BASE}/v1${path}`, { ...init, headers, credentials: 'same-origin' });
   const text = await res.text();
   let body: unknown = null;
   if (text) {
@@ -50,12 +63,23 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     }
   }
   if (!res.ok) {
-    throw new ApiError(res.status, body as Partial<Problem> | null);
+    const error = new ApiError(res.status, body as Partial<Problem> | null);
+    if (res.status === 401 && !path.startsWith('/auth/login')) {
+      onUnauthorized();
+    }
+    throw error;
   }
   return body as T;
 }
 
 export const api = {
+  login: (employeeId: string, pin: string) =>
+    request<Staff>('/auth/login', { method: 'POST', body: JSON.stringify({ employeeId, pin }) }),
+
+  logout: () => request<void>('/auth/logout', { method: 'POST' }),
+
+  me: () => request<Staff>('/auth/me'),
+
   location: (id: string) => request<Location>(`/locations/${id}`),
 
   menu: (locationId: string) => request<MenuItemPage>(`/locations/${locationId}/menu-items?limit=100`),
@@ -73,6 +97,14 @@ export const api = {
 
   pay: (order: Pick<Order, 'id' | 'version'>, body: CreatePaymentRequest, idempotencyKey: string) =>
     request<Payment>(`/orders/${order.id}/payments`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers: { 'Idempotency-Key': idempotencyKey, 'If-Match': `"${order.version}"` },
+    }),
+
+  /** Manager-approved comp; returns the re-priced order. */
+  comp: (order: Pick<Order, 'id' | 'version'>, body: CompRequest, idempotencyKey: string) =>
+    request<Order>(`/orders/${order.id}/comps`, {
       method: 'POST',
       body: JSON.stringify(body),
       headers: { 'Idempotency-Key': idempotencyKey, 'If-Match': `"${order.version}"` },

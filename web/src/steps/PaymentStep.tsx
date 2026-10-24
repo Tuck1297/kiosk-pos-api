@@ -1,7 +1,8 @@
 import { Alert, Box, Button, Group, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Title, UnstyledButton } from '@mantine/core';
-import { IconAlertTriangle, IconCash, IconCreditCard } from '@tabler/icons-react';
+import { IconAlertTriangle, IconCash, IconCreditCard, IconGift } from '@tabler/icons-react';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { ApiError, api, describeError, type CreatePaymentRequest, type Order, type Payment } from '../api/client';
+import { CompDialog } from '../components/CompDialog';
 import { OrderSummary } from '../components/OrderSummary';
 import { formatCents, formatMoney, quickCashAmounts } from '../money';
 
@@ -16,9 +17,14 @@ const DEMO_CARDS = [
 interface Props {
   order: Order;
   onPaid: (payment: Payment) => void;
+  /** A comp re-priced the order (new total and version from the server). */
+  onOrderChange: (order: Order) => void;
+  /** A comp brought the total to $0.00; the server closed the order. */
+  onCompedInFull: (order: Order) => void;
 }
 
-export function PaymentStep({ order, onPaid }: Props) {
+export function PaymentStep({ order, onPaid, onOrderChange, onCompedInFull }: Props) {
+  const [compOpen, setCompOpen] = useState(false);
   const [tender, setTender] = useState<Tender>('CARD');
   const [card, setCard] = useState<string>(DEMO_CARDS[0].value);
   const [cash, setCash] = useState<string | number>('');
@@ -58,17 +64,37 @@ export function PaymentStep({ order, onPaid }: Props) {
     }
   }
 
+  function comped(updated: Order) {
+    setCompOpen(false);
+    // The order's total and version changed: start the payment over from the new numbers.
+    attemptKey.current = null;
+    setCash('');
+    setError(null);
+    if (updated.status === 'PAID') {
+      onCompedInFull(updated);
+    } else {
+      onOrderChange(updated);
+    }
+  }
+
   return (
     <Group align="flex-start" gap="xl" wrap="wrap">
       <Stack gap="lg" style={{ flex: '999 1 520px', minWidth: 0, maxWidth: 820 }}>
-        <div>
-          <Text fw={600} c="dimmed">
-            Total due · Order #{order.orderNumber}{order.guestName ? ` for ${order.guestName}` : ''}
-          </Text>
-          <Title order={1} fz={72} lh={1.1} style={{ fontVariantNumeric: 'tabular-nums' }}>
-            {formatMoney(order.total)}
-          </Title>
-        </div>
+        <Group justify="space-between" align="flex-end" wrap="wrap">
+          <div>
+            <Text fw={600} c="dimmed">
+              Total due · Order #{order.orderNumber}{order.guestName ? ` for ${order.guestName}` : ''}
+            </Text>
+            <Title order={1} fz={72} lh={1.1} style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {formatMoney(order.total)}
+            </Title>
+          </div>
+          <Button variant="light" color="orange" size="md" leftSection={<IconGift size={18} />}
+                  onClick={() => setCompOpen(true)} disabled={busy}>
+            Comp…
+          </Button>
+        </Group>
+        <CompDialog order={order} opened={compOpen} onClose={() => setCompOpen(false)} onComped={comped} />
 
         {decline && (
           <Alert color="orange" variant="light" icon={<IconAlertTriangle />} title={`Card declined: ${decline}`}>
@@ -165,13 +191,16 @@ export function PaymentStep({ order, onPaid }: Props) {
         <OrderSummary
           title="Order summary"
           lines={order.lines.map((l) => ({
+            key: l.id,
             menuItemId: l.menuItemId,
             name: l.name,
             quantity: l.quantity,
             lineTotal: l.lineTotal,
             note: l.note,
+            comped: l.comped,
           }))}
           subtotal={order.subtotal}
+          compTotal={order.compTotal}
           tax={order.tax}
           total={order.total}
           taxRateBps={order.taxRateBps}

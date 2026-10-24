@@ -1,22 +1,27 @@
-import { ActionIcon, Alert, Divider, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core';
+import { ActionIcon, Alert, Badge, Divider, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core';
 import { IconMinus, IconPlus } from '@tabler/icons-react';
 import type { ReactNode } from 'react';
 import type { Money } from '../api/client';
 import { formatMoney, formatRate } from '../money';
 
 export interface SummaryLine {
+  /** Unique per line; defaults to menuItemId (cart lines are one per item). */
+  key?: string;
   menuItemId: string;
   name: string;
   quantity: number;
   /** Absent until the server has priced this exact line. */
   lineTotal?: Money;
   note?: string | null;
+  comped?: boolean;
 }
 
 interface Props {
   title: string;
   lines: SummaryLine[];
   subtotal?: Money;
+  /** Comps already taken off (server amount). Shown only when above zero. */
+  compTotal?: Money;
   tax?: Money;
   total?: Money;
   taxRateBps?: number;
@@ -29,7 +34,7 @@ interface Props {
 
 /** The order on the right of every step. Every amount shown here came from the server. */
 export function OrderSummary({
-  title, lines, subtotal, tax, total, taxRateBps, taxName, loading, error, onChangeQuantity, footer,
+  title, lines, subtotal, compTotal, tax, total, taxRateBps, taxName, loading, error, onChangeQuantity, footer,
 }: Props) {
   return (
     <Paper withBorder p="lg" radius="md">
@@ -49,9 +54,12 @@ export function OrderSummary({
         ) : (
           <Stack gap="sm">
             {lines.map((line) => (
-              <Group key={line.menuItemId} justify="space-between" wrap="nowrap" align="center">
+              <Group key={line.key ?? line.menuItemId} justify="space-between" wrap="nowrap" align="center">
                 <Stack gap={0} style={{ minWidth: 0, flex: 1 }}>
-                  <Text fw={600}>{line.name}</Text>
+                  <Group gap={6} wrap="nowrap">
+                    <Text fw={600} td={line.comped ? 'line-through' : undefined}>{line.name}</Text>
+                    {line.comped && <Badge color="orange" variant="light" size="sm">Comped</Badge>}
+                  </Group>
                   {line.note && <Text size="sm" fs="italic" c="orange.9">{line.note}</Text>}
                 </Stack>
                 {onChangeQuantity ? (
@@ -87,6 +95,12 @@ export function OrderSummary({
                 <Text c="dimmed">Subtotal</Text>
                 <Text>{subtotal ? formatMoney(subtotal) : '—'}</Text>
               </Group>
+              {compTotal && compTotal.amountCents > 0 && (
+                <Group justify="space-between">
+                  <Text c="orange.9" fw={600}>Comps (manager approved)</Text>
+                  <Text c="orange.9" fw={600}>−{formatMoney(compTotal)}</Text>
+                </Group>
+              )}
               <Group justify="space-between">
                 <Text c="dimmed">
                   Tax{taxRateBps !== undefined ? ` (${formatRate(taxRateBps)})` : ''}
