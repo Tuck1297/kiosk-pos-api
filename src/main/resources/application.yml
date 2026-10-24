@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: kiosk-pos-api
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/kiosk_pos}
+    username: ${DB_USER:kiosk}
+    password: ${DB_PASSWORD:kiosk}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Flyway owns the schema; Hibernate never changes it.
+      ddl-auto: none
+  flyway:
+    locations: classpath:db/migration
+  mvc:
+    problemdetails:
+      enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

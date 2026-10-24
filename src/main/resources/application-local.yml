@@ -1,0 +1,5 @@
+# Local development: mvn spring-boot:run -Dspring-boot.run.profiles=local
+# Loads demo locations and menu items on top of the schema.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/seed

@@ -1,0 +1,1056 @@
+openapi: 3.1.0
+info:
+  title: Kiosk POS API
+  version: 1.0.0
+  summary: Order and payment API for a theme-park food and merchandise kiosk.
+  description: |
+    Contract-first API for a point-of-sale system used by mobile ordering apps
+    and staff terminals at quick-service kiosks.
+
+    ## Conventions
+    - **Money** is always an integer in minor units (`amountCents`) plus an ISO 4217
+      `currency`. Never floats.
+    - **Tax** is computed once on the order subtotal using the location's `taxRateBps`,
+      rounded half-up to the cent.
+    - **Prices are snapshotted** onto order lines when an order is created, so later
+      menu price changes never alter an existing order.
+    - **Idempotency**: every `POST` that creates or charges something requires an
+      `Idempotency-Key` header (a client-generated UUID). Retrying with the same key
+      and same body replays the original response; the same key with a different
+      body returns `422`. A second request arriving while the first is still running
+      returns `409` with code `IDEMPOTENCY_IN_PROGRESS`.
+    - **Concurrency**: orders carry a `version`. State-changing calls on an order send
+      it back in `If-Match`; a stale version returns `412`.
+    - **Errors** use RFC 9457 `application/problem+json`.
+    - **Pagination** is cursor-based: pass `nextCursor` from the previous page as `cursor`.
+
+    ## Order lifecycle
+    `OPEN` → `PAID` → `IN_PREPARATION` → `READY` → `COMPLETED`
+    `OPEN` or `PAID` → `CANCELLED` (a paid order is voided on cancel)
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: http://localhost:8080/v1
+    description: Local (Docker Compose)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Locations
+    description: Kiosks and the parks they belong to.
+  - name: Menu
+    description: Items a location sells and whether they are available right now.
+  - name: Orders
+    description: Create, track and update guest orders.
+  - name: Payments
+    description: Take payment for an order (card is mocked).
+  - name: Health
+    description: Liveness for load balancers and Docker.
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Liveness check
+      security: []
+      responses:
+        '200':
+          description: Service is up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /locations:
+    get:
+      tags: [Locations]
+      operationId: listLocations
+      summary: List kiosk locations
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of locations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /locations/{locationId}:
+    parameters:
+      - $ref: '#/components/parameters/LocationId'
+    get:
+      tags: [Locations]
+      operationId: getLocation
+      summary: Get one location
+      responses:
+        '200':
+          description: The location.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Location'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /locations/{locationId}/menu-items:
+    parameters:
+      - $ref: '#/components/parameters/LocationId'
+    get:
+      tags: [Menu]
+      operationId: listMenuItems
+      summary: List a location's menu
+      parameters:
+        - name: available
+          in: query
+          description: When true, only items that can be ordered right now.
+          schema:
+            type: boolean
+        - name: category
+          in: query
+          schema:
+            $ref: '#/components/schemas/MenuCategory'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of menu items.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MenuItemPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Menu]
+      operationId: createMenuItem
+      summary: Add an item to a location's menu (staff)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMenuItemRequest'
+      responses:
+        '201':
+          description: Created.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MenuItem'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: A menu item with this SKU already exists at the location.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+
+  /menu-items/{menuItemId}:
+    parameters:
+      - $ref: '#/components/parameters/MenuItemId'
+    patch:
+      tags: [Menu]
+      operationId: updateMenuItem
+      summary: Change price or availability (staff)
+      description: Marking an item unavailable (e.g. sold out) stops new orders for it. Existing orders keep their snapshotted price.
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/UpdateMenuItemRequest'
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MenuItem'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /orders:
+    post:
+      tags: [Orders]
+      operationId: createOrder
+      summary: Create an order
+      description: |
+        Validates every item belongs to `locationId` and is available, snapshots prices,
+        and computes subtotal, tax and total on the server. Clients never send prices.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+            example:
+              locationId: 5b1f6a2e-8c1d-4f3a-9e7b-2d4c6a8e0f11
+              channel: MOBILE
+              guestName: Jordan
+              lines:
+                - menuItemId: 9a3e7c51-2b4d-4e6f-8a1c-3d5e7f9b1c22
+                  quantity: 2
+                - menuItemId: 1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e33
+                  quantity: 1
+                  note: no ice
+      responses:
+        '201':
+          description: Order created in `OPEN` status.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: One or more items are unavailable or belong to another location.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://kiosk-pos.example.com/problems/item-unavailable
+                title: Item unavailable
+                status: 409
+                detail: Frozen Lemonade is sold out at this location.
+                code: ITEM_UNAVAILABLE
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+    get:
+      tags: [Orders]
+      operationId: listOrders
+      summary: List orders (staff order queue)
+      parameters:
+        - name: locationId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          description: Repeat to filter on several statuses, e.g. `status=PAID&status=IN_PREPARATION`.
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/OrderStatus'
+          style: form
+          explode: true
+        - name: createdAfter
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of orders, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderPage'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /orders/{orderId}:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    get:
+      tags: [Orders]
+      operationId: getOrder
+      summary: Get an order
+      responses:
+        '200':
+          description: The order.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /orders/{orderId}/status:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    put:
+      tags: [Orders]
+      operationId: updateOrderStatus
+      summary: Move a paid order through preparation (staff)
+      description: |
+        Allowed transitions: `PAID`→`IN_PREPARATION`→`READY`→`COMPLETED`.
+        Use `POST /orders/{orderId}/cancel` to cancel and `POST /orders/{orderId}/payments` to pay.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrderStatusRequest'
+      responses:
+        '200':
+          description: Status changed.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/InvalidTransition'
+        '412':
+          $ref: '#/components/responses/StaleVersion'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+
+  /orders/{orderId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    post:
+      tags: [Orders]
+      operationId: cancelOrder
+      summary: Cancel an order
+      description: Allowed from `OPEN` or `PAID`. A captured payment is voided in the same transaction.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelOrderRequest'
+      responses:
+        '200':
+          description: Order cancelled.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/InvalidTransition'
+        '412':
+          $ref: '#/components/responses/StaleVersion'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+
+  /orders/{orderId}/payments:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    post:
+      tags: [Payments]
+      operationId: payOrder
+      summary: Pay for an order
+      description: |
+        Charges the order's full `totalCents`. On success the order moves to `PAID`.
+        The card processor is mocked: `cardToken` values starting with `tok_decline`
+        are declined, anything else is approved.
+
+        This is the call a flaky mobile connection will retry, so the
+        `Idempotency-Key` guarantees a guest is charged at most once.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentRequest'
+            examples:
+              card:
+                value:
+                  tenderType: CARD
+                  cardToken: tok_visa_4242
+              cash:
+                value:
+                  tenderType: CASH
+                  cashTenderedCents: 2000
+      responses:
+        '201':
+          description: Payment captured; order is now `PAID`.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '402':
+          description: Card declined. The order stays `OPEN` and can be retried with a new key.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://kiosk-pos.example.com/problems/payment-declined
+                title: Payment declined
+                status: 402
+                code: PAYMENT_DECLINED
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/InvalidTransition'
+        '412':
+          $ref: '#/components/responses/StaleVersion'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+    get:
+      tags: [Payments]
+      operationId: listOrderPayments
+      summary: List payment attempts for an order
+      responses:
+        '200':
+          description: All attempts, including declines and voids, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT with a `role` claim of `GUEST_APP` or `STAFF`. Staff-only operations are
+        marked "(staff)" in their summary. For local development the API accepts a
+        static token from `application-local.yml`.
+
+  parameters:
+    LocationId:
+      name: locationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MenuItemId:
+      name: menuItemId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor from a previous page's `nextCursor`.
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Client-generated UUID, unique per logical operation. Kept for 24 hours.
+      schema:
+        type: string
+        format: uuid
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: The order's current `ETag` (its `version`, quoted), e.g. `"3"`.
+      schema:
+        type: string
+        example: '"3"'
+
+  headers:
+    Location:
+      description: URL of the created resource.
+      schema:
+        type: string
+        format: uri-reference
+    ETag:
+      description: The order's current version, quoted. Send it back in `If-Match`.
+      schema:
+        type: string
+        example: '"3"'
+
+  responses:
+    ValidationFailed:
+      description: The request body or parameters are invalid.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://kiosk-pos.example.com/problems/validation
+            title: Validation failed
+            status: 400
+            code: VALIDATION_FAILED
+            errors:
+              - field: lines[0].quantity
+                message: must be between 1 and 20
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: The token's role is not allowed to do this.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: The resource does not exist.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InvalidTransition:
+      description: The order is not in a status that allows this action.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://kiosk-pos.example.com/problems/invalid-transition
+            title: Invalid status transition
+            status: 409
+            detail: Cannot move order from OPEN to READY.
+            code: INVALID_TRANSITION
+    StaleVersion:
+      description: '`If-Match` does not match the current version. Re-fetch and retry.'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PreconditionRequired:
+      description: The `If-Match` header is missing.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    IdempotencyKeyReused:
+      description: This `Idempotency-Key` was already used with a different request body.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://kiosk-pos.example.com/problems/idempotency-key-reused
+            title: Idempotency key reused
+            status: 422
+            code: IDEMPOTENCY_KEY_REUSED
+
+  schemas:
+    Money:
+      type: object
+      required: [amountCents, currency]
+      properties:
+        amountCents:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 650
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          example: USD
+
+    Location:
+      type: object
+      required: [id, name, parkCode, timezone, taxRateBps, currency, active]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          example: Lakeside Snack Stand
+        parkCode:
+          type: string
+          description: Short code for the park or area the kiosk sits in.
+          example: LAKE
+        timezone:
+          type: string
+          example: America/New_York
+        taxRateBps:
+          type: integer
+          description: Sales tax in basis points (650 = 6.50%).
+          minimum: 0
+          maximum: 3000
+          example: 650
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          example: USD
+        active:
+          type: boolean
+
+    MenuCategory:
+      type: string
+      enum: [ENTREE, SNACK, DESSERT, BEVERAGE, MERCHANDISE]
+
+    MenuItem:
+      type: object
+      required: [id, locationId, sku, name, category, price, available]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        locationId:
+          type: string
+          format: uuid
+        sku:
+          type: string
+          example: BEV-LEM-FRZ
+        name:
+          type: string
+          example: Frozen Lemonade
+        description:
+          type: [string, 'null']
+        category:
+          $ref: '#/components/schemas/MenuCategory'
+        price:
+          $ref: '#/components/schemas/Money'
+        available:
+          type: boolean
+          description: False when sold out or temporarily off the menu.
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+
+    CreateMenuItemRequest:
+      type: object
+      required: [sku, name, category, priceCents]
+      additionalProperties: false
+      properties:
+        sku:
+          type: string
+          pattern: '^[A-Z0-9-]{3,32}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          maxLength: 500
+        category:
+          $ref: '#/components/schemas/MenuCategory'
+        priceCents:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 100000
+        available:
+          type: boolean
+          default: true
+
+    UpdateMenuItemRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: [string, 'null']
+          maxLength: 500
+        priceCents:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 100000
+        available:
+          type: boolean
+
+    OrderStatus:
+      type: string
+      enum: [OPEN, PAID, IN_PREPARATION, READY, COMPLETED, CANCELLED]
+
+    OrderChannel:
+      type: string
+      enum: [MOBILE, KIOSK, COUNTER]
+
+    CreateOrderRequest:
+      type: object
+      required: [locationId, channel, lines]
+      additionalProperties: false
+      properties:
+        locationId:
+          type: string
+          format: uuid
+        channel:
+          $ref: '#/components/schemas/OrderChannel'
+        guestName:
+          type: string
+          maxLength: 40
+          description: Name to call out when the order is ready.
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 30
+          items:
+            $ref: '#/components/schemas/OrderLineRequest'
+
+    OrderLineRequest:
+      type: object
+      required: [menuItemId, quantity]
+      additionalProperties: false
+      properties:
+        menuItemId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 20
+        note:
+          type: string
+          maxLength: 120
+
+    OrderLine:
+      type: object
+      required: [id, menuItemId, sku, name, quantity, unitPrice, lineTotal]
+      properties:
+        id:
+          type: string
+          format: uuid
+        menuItemId:
+          type: string
+          format: uuid
+        sku:
+          type: string
+          description: Snapshot at order time.
+        name:
+          type: string
+          description: Snapshot at order time.
+        quantity:
+          type: integer
+          minimum: 1
+        unitPrice:
+          $ref: '#/components/schemas/Money'
+        lineTotal:
+          $ref: '#/components/schemas/Money'
+        note:
+          type: [string, 'null']
+
+    Order:
+      type: object
+      required: [id, orderNumber, locationId, channel, status, lines, subtotal, tax, total, version, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderNumber:
+          type: integer
+          description: Short number shown to the guest and called out at pickup.
+          example: 1042
+        locationId:
+          type: string
+          format: uuid
+        channel:
+          $ref: '#/components/schemas/OrderChannel'
+        guestName:
+          type: [string, 'null']
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLine'
+        subtotal:
+          $ref: '#/components/schemas/Money'
+        tax:
+          $ref: '#/components/schemas/Money'
+        total:
+          $ref: '#/components/schemas/Money'
+        cancelReason:
+          type: [string, 'null']
+        version:
+          type: integer
+          description: Increments on every change. Also returned as `ETag`.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UpdateOrderStatusRequest:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [IN_PREPARATION, READY, COMPLETED]
+
+    TenderType:
+      type: string
+      enum: [CARD, CASH]
+
+    CreatePaymentRequest:
+      type: object
+      description: |
+        `cardToken` is required for `CARD`; `cashTenderedCents` is required for `CASH`.
+        The server rejects any other combination with `400 VALIDATION_FAILED`.
+      required: [tenderType]
+      additionalProperties: false
+      properties:
+        tenderType:
+          $ref: '#/components/schemas/TenderType'
+        cardToken:
+          type: string
+          description: Required when `tenderType` is `CARD`. Mock processor token.
+          minLength: 4
+          maxLength: 64
+        cashTenderedCents:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Required when `tenderType` is `CASH`. Must be at least the order total.
+
+    CancelOrderRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          maxLength: 200
+
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [UP]
+
+    PaymentList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Payment'
+
+    PaymentStatus:
+      type: string
+      enum: [CAPTURED, DECLINED, VOIDED]
+
+    Payment:
+      type: object
+      required: [id, orderId, tenderType, status, amount, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          format: uuid
+        tenderType:
+          $ref: '#/components/schemas/TenderType'
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        amount:
+          $ref: '#/components/schemas/Money'
+        changeDue:
+          $ref: '#/components/schemas/Money'
+          description: Cash payments only; omitted for card.
+        cardLast4:
+          type: [string, 'null']
+          pattern: '^[0-9]{4}$'
+        processorReference:
+          type: [string, 'null']
+          description: Reference from the (mock) processor.
+        declineCode:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+
+    PageInfo:
+      type: object
+      required: [nextCursor]
+      properties:
+        nextCursor:
+          type: [string, 'null']
+          description: Null on the last page.
+
+    LocationPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Location'
+
+    MenuItemPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/MenuItem'
+
+    OrderPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Order'
+
+    Problem:
+      type: object
+      description: RFC 9457 problem details, plus a stable machine-readable `code`.
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+          description: Stable code clients can switch on.
+          enum:
+            - VALIDATION_FAILED
+            - UNAUTHORIZED
+            - FORBIDDEN
+            - NOT_FOUND
+            - DUPLICATE_SKU
+            - ITEM_UNAVAILABLE
+            - INVALID_TRANSITION
+            - STALE_VERSION
+            - PRECONDITION_REQUIRED
+            - PAYMENT_DECLINED
+            - INSUFFICIENT_CASH
+            - IDEMPOTENCY_KEY_REUSED
+            - IDEMPOTENCY_IN_PROGRESS
+            - INTERNAL_ERROR
+        errors:
+          type: array
+          description: Field-level details for `VALIDATION_FAILED`.
+          items:
+            $ref: '#/components/schemas/FieldError'
+
+    FieldError:
+      type: object
+      required: [field, message]
+      properties:
+        field:
+          type: string
+        message:
+          type: string
