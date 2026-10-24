@@ -26,12 +26,15 @@ const saleDuration = new Trend('sale_server_time', true);
 
 export const options = {
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(95)', 'p(99)'],
+  // A register's browser keeps its session cookie for the whole shift. (k6's default is
+  // to clear cookies every iteration, which would sign every register out after one sale.)
+  noCookiesReset: true,
   scenarios: {
     registers: {
       executor: 'ramping-vus',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: REGISTERS },   // registers come online
+        { duration: '60s', target: REGISTERS },   // registers sign in and come online
         { duration: DURATION, target: REGISTERS }, // sustained peak
         { duration: '15s', target: 0 },
       ],
@@ -85,6 +88,11 @@ export default function () {
     }
     signedIn = true;
   }
+  // Like the register: a 401 at any point (e.g. session expired) means sign in again.
+  const signInAgainOn401 = (res) => {
+    if (res.status === 401) signedIn = false;
+    return res;
+  };
   let serverMs = 0;
 
   // The register reloads the menu after every sale (served from Redis).
@@ -93,6 +101,7 @@ export default function () {
     tags: { name: 'menu' },
   });
   serverMs += menuRes.timings.duration;
+  signInAgainOn401(menuRes);
   if (!check(menuRes, { 'menu 200': (r) => r.status === 200 })) {
     think(1, 2);
     return;
@@ -111,6 +120,7 @@ export default function () {
     else cart.push({ menuItemId: item.id, quantity: 1 });
     quote = post('/orders/quote', { locationId: LOCATION, lines: cart }, 'quote');
     serverMs += quote.timings.duration;
+    signInAgainOn401(quote);
     check(quote, { 'quote 200': (r) => r.status === 200 });
   }
 
@@ -123,6 +133,7 @@ export default function () {
     { 'Idempotency-Key': uuid() },
   );
   serverMs += order.timings.duration;
+  signInAgainOn401(order);
   if (!check(order, {
     'order 201': (r) => r.status === 201,
     'order total matches quote': (r) => r.status === 201 && quote && quote.status === 200
@@ -159,6 +170,7 @@ export default function () {
       'pay', { 'Idempotency-Key': uuid(), ...ifMatch });
   }
   serverMs += paid.timings.duration;
+  signInAgainOn401(paid);
   if (check(paid, { 'payment 201': (r) => r.status === 201 })) {
     sales.add(1);
     saleDuration.add(serverMs);
