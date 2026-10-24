@@ -80,7 +80,12 @@ class ApiSmokeTests {
 
     @Test
     void limitAboveMaximumIs400() throws Exception {
-        assertThat(get("/v1/locations?limit=500").statusCode()).isEqualTo(400);
+        HttpResponse<String> res = get("/v1/locations?limit=500");
+
+        assertThat(res.statusCode()).as(res.body()).isEqualTo(400);
+        assertThat(res.headers().firstValue("Content-Type")).hasValueSatisfying(
+                type -> assertThat(type).startsWith("application/problem+json"));
+        assertThat(res.body()).contains("VALIDATION_FAILED").contains("\"field\":\"limit\"");
     }
 
     @Test
