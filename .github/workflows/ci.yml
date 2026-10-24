@@ -99,9 +99,20 @@ jobs:
       - name: Smoke test through the gateway
         run: |
           set -e
-          curl -fsS http://localhost:8080/ | grep -q '<div id="root">'
-          curl -fsS http://localhost:8080/v1/health
-          curl -fsS "http://localhost:8080/v1/locations/5b1f6a2e-8c1d-4f3a-9e7b-2d4c6a8e0f11/menu-items?available=true" | grep -q 'Soft Pretzel'
+          base=http://localhost:8080
+          curl -fsS $base/ | grep -q '<div id="root">'
+          curl -fsS $base/v1/health
+          menu="$base/v1/locations/5b1f6a2e-8c1d-4f3a-9e7b-2d4c6a8e0f11/menu-items?available=true"
+          # Without a session the API refuses...
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$menu")" = 401
+          # ...and without the CSRF header sign-in is refused too.
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+            -d '{"employeeId":"C2001","pin":"1111"}' $base/v1/auth/login)" = 403
+          # Sign in like the register: the HttpOnly cookie goes in the jar.
+          curl -fsS -c cookies.txt -X POST -H 'Content-Type: application/json' -H 'X-Kiosk-Register: 1' \
+            -d '{"employeeId":"C2001","pin":"1111"}' $base/v1/auth/login | grep -q '"role":"CASHIER"'
+          grep -q 'kiosk_session' cookies.txt
+          curl -fsS -b cookies.txt "$menu" | grep -q 'Soft Pretzel'
           echo "API replicas running: $(docker compose ps api --status running -q | wc -l)"
 
       - name: Load test (500 registers)
