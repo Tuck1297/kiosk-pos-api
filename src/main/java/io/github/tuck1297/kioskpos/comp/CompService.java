@@ -84,9 +84,9 @@ public class CompService {
             if (order.isLineComped(lineId)) {
                 throw ApiException.compNotAllowed(line.getName() + " has already been comped.");
             }
-            amount = line.getLineTotalCents();
+            amount = order.lineCompAmountCents(line);
         } else {
-            amount = order.uncompedSubtotalCents();
+            amount = order.uncompedNetCents();
         }
         if (amount <= 0) {
             throw ApiException.compNotAllowed("There is nothing left to comp on this order.");

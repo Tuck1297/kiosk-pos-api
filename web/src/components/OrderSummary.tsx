@@ -1,7 +1,7 @@
 import { ActionIcon, Alert, Badge, Divider, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core';
 import { IconMinus, IconPlus } from '@tabler/icons-react';
 import type { ReactNode } from 'react';
-import type { Money } from '../api/client';
+import type { AppliedDiscount, Money } from '../api/client';
 import { formatMoney, formatRate } from '../money';
 
 export interface SummaryLine {
@@ -20,6 +20,8 @@ interface Props {
   title: string;
   lines: SummaryLine[];
   subtotal?: Money;
+  /** The discount the server accepted, with its amount. */
+  discount?: AppliedDiscount | null;
   /** Comps already taken off (server amount). Shown only when above zero. */
   compTotal?: Money;
   tax?: Money;
@@ -34,7 +36,7 @@ interface Props {
 
 /** The order on the right of every step. Every amount shown here came from the server. */
 export function OrderSummary({
-  title, lines, subtotal, compTotal, tax, total, taxRateBps, taxName, loading, error, onChangeQuantity, footer,
+  title, lines, subtotal, discount, compTotal, tax, total, taxRateBps, taxName, loading, error, onChangeQuantity, footer,
 }: Props) {
   return (
     <Paper withBorder p="lg" radius="md">
@@ -95,6 +97,12 @@ export function OrderSummary({
                 <Text c="dimmed">Subtotal</Text>
                 <Text>{subtotal ? formatMoney(subtotal) : '—'}</Text>
               </Group>
+              {discount && (
+                <Group justify="space-between" wrap="nowrap" gap="sm">
+                  <Text c="teal.9" fw={600} style={{ minWidth: 0 }}>Discount · {discount.label}</Text>
+                  <Text c="teal.9" fw={600}>−{formatMoney(discount.amount)}</Text>
+                </Group>
+              )}
               {compTotal && compTotal.amountCents > 0 && (
                 <Group justify="space-between">
                   <Text c="orange.9" fw={600}>Comps (manager approved)</Text>

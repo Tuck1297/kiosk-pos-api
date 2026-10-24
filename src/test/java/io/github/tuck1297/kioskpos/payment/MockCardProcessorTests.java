@@ -13,7 +13,10 @@ class MockCardProcessorTests {
         MockCardProcessor.CardResult r = processor.charge("tok_visa_4242", 2235);
 
         assertThat(r.approved()).isTrue();
+        assertThat(r.brand()).isEqualTo("VISA");
         assertThat(r.last4()).isEqualTo("4242");
+        assertThat(processor.charge("tok_amex_0005", 1).brand()).isEqualTo("AMEX");
+        assertThat(processor.charge("tok_mastercard_4444", 1).brand()).isEqualTo("MASTERCARD");
         assertThat(r.reference()).startsWith("mock_ch_");
         assertThat(r.declineCode()).isNull();
     }

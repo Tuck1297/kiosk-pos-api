@@ -3,7 +3,13 @@ package io.github.tuck1297.kioskpos.web;
 import static io.github.tuck1297.kioskpos.common.ApiMappers.money;
 
 import io.github.tuck1297.kioskpos.api.OrdersApi;
+import io.github.tuck1297.kioskpos.api.model.AppliedDiscount;
 import io.github.tuck1297.kioskpos.api.model.CompRequest;
+import io.github.tuck1297.kioskpos.api.model.DiscountKind;
+import io.github.tuck1297.kioskpos.api.model.StaffRef;
+import io.github.tuck1297.kioskpos.discount.DiscountResolver;
+import io.github.tuck1297.kioskpos.discount.DiscountRule;
+import java.util.Optional;
 import io.github.tuck1297.kioskpos.api.model.CreateOrderRequest;
 import io.github.tuck1297.kioskpos.auth.CurrentStaff;
 import io.github.tuck1297.kioskpos.comp.CompService;
@@ -33,14 +39,16 @@ public class OrdersController implements OrdersApi {
 
     private final MenuCatalog catalog;
     private final PricingService pricing;
+    private final DiscountResolver discounts;
     private final OrderService orders;
     private final CompService comps;
     private final CurrentStaff currentStaff;
 
-    public OrdersController(MenuCatalog catalog, PricingService pricing, OrderService orders, CompService comps,
-                            CurrentStaff currentStaff) {
+    public OrdersController(MenuCatalog catalog, PricingService pricing, DiscountResolver discounts,
+                            OrderService orders, CompService comps, CurrentStaff currentStaff) {
         this.catalog = catalog;
         this.pricing = pricing;
+        this.discounts = discounts;
         this.orders = orders;
         this.comps = comps;
         this.currentStaff = currentStaff;
@@ -54,10 +62,15 @@ public class OrdersController implements OrdersApi {
                 .body(order);
     }
 
-    /** Priced from the cached menu: the hottest read path, kept off the database. */
+    /**
+     * Priced from the cached menu: the hottest read path, kept off the database. A discount,
+     * when the register sends one, is checked against Postgres (codes expire and run out).
+     */
     @Override
     public ResponseEntity<OrderQuote> quoteOrder(QuoteRequest quoteRequest) {
-        PricedOrder priced = pricing.price(catalog.cached(quoteRequest.getLocationId()), quoteRequest.getLines());
+        Optional<DiscountRule> discount = discounts.resolve(quoteRequest.getDiscount());
+        PricedOrder priced = pricing.price(catalog.cached(quoteRequest.getLocationId()), quoteRequest.getLines(),
+                discount);
         String currency = priced.currency();
         return ResponseEntity.ok(new OrderQuote()
                 .locationId(priced.menu().locationId())
@@ -72,6 +85,15 @@ public class OrdersController implements OrdersApi {
                                 .note(l.note()))
                         .collect(Collectors.toList()))
                 .subtotal(money(priced.subtotalCents(), currency))
+                .discount(discount.map(d -> new AppliedDiscount()
+                        .kind(DiscountKind.fromValue(d.kind()))
+                        .code(d.code())
+                        .employee(d.employeeRef() == null ? null
+                                : new StaffRef().employeeId(d.employeeRef().employeeId()).name(d.employeeRef().name()))
+                        .label(d.label())
+                        .rateBps(d.percentBps())
+                        .amount(money(priced.discountCents(), currency))).orElse(null))
+                .discountTotal(money(priced.discountCents(), currency))
                 .taxRate(ApiMappers.taxRate(priced.taxRate()))
                 .tax(money(priced.taxCents(), currency))
                 .total(money(priced.totalCents(), currency))

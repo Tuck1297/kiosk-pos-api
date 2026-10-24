@@ -1,6 +1,7 @@
 import { Button, Center, Paper, Stack, Text, Title } from '@mantine/core';
 import { IconCircleCheck } from '@tabler/icons-react';
 import type { Order, Payment } from '../api/client';
+import { describeCard } from '../card';
 import { formatMoney } from '../money';
 
 interface Props {
@@ -21,10 +22,15 @@ export function DoneStep({ order, payment, onNextSale }: Props) {
         </Title>
         <Text c="dimmed" ta="center">
           {payment
-            ? `${formatMoney(payment.amount)} by ${payment.tenderType === 'CASH' ? 'cash' : `card${payment.cardLast4 ? ` ending ${payment.cardLast4}` : ''}`}`
+            ? `${formatMoney(payment.amount)} by ${payment.tenderType === 'CASH' ? 'cash' : describeCard(payment.cardBrand, payment.cardLast4)}`
             : `Nothing to collect · approved by ${lastComp?.approvedBy.name ?? 'a manager'}`}
           {order.guestName ? ` · call out “${order.guestName}” at pickup` : ''}
         </Text>
+        {order.discount && (
+          <Text c="teal.9" fw={600} ta="center">
+            Saved {formatMoney(order.discount.amount)} · {order.discount.label}
+          </Text>
+        )}
 
         {payment?.changeDue && (
           <Paper w="100%" p="xl" radius="lg" bg="green.0" ta="center">

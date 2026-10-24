@@ -2,6 +2,7 @@ package io.github.tuck1297.kioskpos.payment;
 
 import static io.github.tuck1297.kioskpos.common.ApiMappers.money;
 
+import io.github.tuck1297.kioskpos.api.model.CardBrand;
 import io.github.tuck1297.kioskpos.api.model.CreatePaymentRequest;
 import io.github.tuck1297.kioskpos.api.model.Payment;
 import io.github.tuck1297.kioskpos.api.model.PaymentList;
@@ -84,8 +85,10 @@ public class PaymentService {
         } else {
             MockCardProcessor.CardResult card = processor.charge(request.getCardToken(), total);
             payment = card.approved()
-                    ? PaymentEntity.cardCaptured(orderId, total, order.getCurrency(), card.last4(), card.reference(), now)
-                    : PaymentEntity.cardDeclined(orderId, total, order.getCurrency(), card.last4(), card.declineCode(), now);
+                    ? PaymentEntity.cardCaptured(orderId, total, order.getCurrency(), card.brand(), card.last4(),
+                            card.reference(), now)
+                    : PaymentEntity.cardDeclined(orderId, total, order.getCurrency(), card.brand(), card.last4(),
+                            card.declineCode(), now);
         }
 
         em.persist(payment);
@@ -123,6 +126,7 @@ public class PaymentService {
                 .status(PaymentStatus.fromValue(p.getStatus()))
                 .amount(money(p.getAmountCents(), p.getCurrency()))
                 .changeDue(p.getChangeDueCents() == null ? null : money(p.getChangeDueCents(), p.getCurrency()))
+                .cardBrand(p.getCardBrand() == null ? null : CardBrand.fromValue(p.getCardBrand()))
                 .cardLast4(p.getCardLast4())
                 .processorReference(p.getProcessorReference())
                 .declineCode(p.getDeclineCode())

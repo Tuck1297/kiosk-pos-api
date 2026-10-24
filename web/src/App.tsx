@@ -1,9 +1,9 @@
-import { Alert, Box, Button, Center, Group, Loader, Stepper, Text } from '@mantine/core';
+import { Alert, Box, Button, Center, Group, Loader, Stack, Stepper, Text } from '@mantine/core';
 import { IconBuildingStore, IconLogout } from '@tabler/icons-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ApiError, api, describeError, setUnauthorizedHandler,
-  type Location, type MenuItem, type Order, type Payment, type Staff,
+  type DiscountRequest, type Location, type MenuItem, type Order, type Payment, type Staff,
 } from './api/client';
 import { addItem, changeQuantity, toLineRequests, type CartLine } from './cart';
 import { SignInScreen } from './components/SignInScreen';
@@ -59,7 +59,18 @@ function Register({ staff, onSignOut }: { staff: Staff; onSignOut: () => void })
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [cart, setCart] = useState<CartLine[]>([]);
-  const quote = useQuote(LOCATION_ID, cart);
+  const [discount, setDiscount] = useState<DiscountRequest | null>(null);
+  const [discountNotice, setDiscountNotice] = useState<string | null>(null);
+  const quote = useQuote(LOCATION_ID, cart, discount);
+
+  // A discount can stop applying when the cart changes (e.g. below a code's minimum). Take it
+  // off and say why, rather than leaving the order unpriceable.
+  useEffect(() => {
+    if (discount && quote.errorCode === 'DISCOUNT_NOT_APPLICABLE') {
+      setDiscountNotice(`Discount removed. ${quote.error ?? ''}`.trim());
+      setDiscount(null);
+    }
+  }, [discount, quote.errorCode, quote.error]);
 
   const [order, setOrder] = useState<Order | null>(null);
   const [payment, setPayment] = useState<Payment | null>(null);
@@ -86,13 +97,37 @@ function Register({ staff, onSignOut }: { staff: Staff; onSignOut: () => void })
     setStep(ITEMS);
   }
 
+  /** Asks the server whether the discount applies to this cart before showing it as applied. */
+  async function applyDiscount(next: DiscountRequest): Promise<string | null> {
+    try {
+      await api.quote({ locationId: LOCATION_ID, lines: toLineRequests(cart), discount: next });
+      setDiscountNotice(null);
+      setDiscount(next);
+      return null;
+    } catch (e) {
+      return describeError(e);
+    }
+  }
+
+  function removeDiscount() {
+    createKey.current = null;
+    setCreateError(null);
+    setDiscount(null);
+  }
+
   async function placeOrder(guestName: string) {
     createKey.current ??= crypto.randomUUID();
     setCreating(true);
     setCreateError(null);
     try {
       const created = await api.createOrder(
-        { locationId: LOCATION_ID, channel: 'COUNTER', guestName: guestName || undefined, lines: toLineRequests(cart) },
+        {
+          locationId: LOCATION_ID,
+          channel: 'COUNTER',
+          guestName: guestName || undefined,
+          lines: toLineRequests(cart),
+          discount: discount ?? undefined,
+        },
         createKey.current,
       );
       setOrder(created);
@@ -109,6 +144,8 @@ function Register({ staff, onSignOut }: { staff: Staff; onSignOut: () => void })
 
   function nextSale() {
     setCart([]);
+    setDiscount(null);
+    setDiscountNotice(null);
     setOrder(null);
     setPayment(null);
     createKey.current = null;
@@ -176,7 +213,26 @@ function Register({ staff, onSignOut }: { staff: Staff; onSignOut: () => void })
           />
         )}
         {step === REVIEW && quote.quote && (
-          <ReviewStep quote={quote.quote} busy={creating} error={createError} onBack={editItems} onConfirm={placeOrder} />
+          <ReviewStep
+            quote={quote.quote}
+            repricing={quote.loading}
+            discount={discount}
+            discountNotice={discountNotice}
+            onApplyDiscount={applyDiscount}
+            onRemoveDiscount={removeDiscount}
+            busy={creating}
+            error={createError}
+            onBack={editItems}
+            onConfirm={placeOrder}
+          />
+        )}
+        {step === REVIEW && !quote.quote && quote.error && (
+          <Alert color="red" variant="light" title="Can't price this order" maw={640}>
+            <Stack gap="sm" align="flex-start">
+              <Text>{quote.error}</Text>
+              <Button variant="default" onClick={editItems}>Edit items</Button>
+            </Stack>
+          </Alert>
         )}
         {step === PAYMENT && order && (
           <PaymentStep

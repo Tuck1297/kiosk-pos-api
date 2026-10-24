@@ -19,7 +19,8 @@ docker compose up -d --build
 
 Open **http://localhost:8080** for the register; the API is at `http://localhost:8080/v1`. This starts
 everything: Postgres, PgBouncer, Redis, 3 API replicas and an nginx gateway that serves the register and
-load-balances the API. Demo data loads automatically:
+load-balances the API. Demo data loads automatically: the Lakeside Snack Stand with a 20-item menu
+(entrées, snacks, desserts, drinks; the churro is sold out to show that state), and these staff:
 
 | Employee ID | PIN | Role |
 |---|---|---|
@@ -27,7 +28,22 @@ load-balances the API. Demo data loads automatically:
 | `M1001` | `2468` | Manager (approves comps) |
 | `M1002` | `1357` | Manager |
 
-In the demo card reader, the 4242 card approves and the 0002 card declines.
+Sign in as `C2001` / `1111` and the register is ready to take orders.
+
+**Discounts** (one per order, entered on the Review step):
+
+| Enter | What it does |
+|---|---|
+| Code `PARKFAN10` | 10% off |
+| Code `WELCOME5` | $5.00 off orders of $20.00 or more |
+| Code `LIMITED50` | 50% off, first 3 orders only |
+| Code `SUMMER25` | expired, to show the error |
+| Employee ID `C2001`, `M1001`, `M1002` | employee discount, 20% off |
+
+**Cards**: on the Payment step, pick Tap, Insert or Swipe and tap a card in the demo wallet (Visa 4242,
+Mastercard 4444 and Amex 0005 approve; the 0002 and 9995 cards decline), or key in a number:
+`4242 4242 4242 4242` approves, `4000 0000 0000 0002` declines, `4000 0000 0000 9995` has insufficient
+funds; any future expiry and CVC.
 
 ```bash
 docker compose up -d --scale api=6                 # more API replicas
@@ -54,6 +70,10 @@ A guided checkout for the cashier at the window: **Sign in → Items → Review 
 
 - **Sign-in** with employee ID + PIN. The session is an `HttpOnly`, `SameSite=Strict` cookie the page's
   JavaScript can't read; if it expires mid-shift, the register returns to sign-in.
+- **Discounts**: a promo code or an employee discount by employee ID. The server checks the code's
+  dates, minimum order and redemption limit (or that the employee ID is active), works out the amount
+  and taxes what's left. If an edit drops the order below a code's minimum, the discount comes off and the
+  register says why.
 - **Comps** with manager approval: comp one item or the whole order, with a reason. A manager enters
   their own ID + PIN on the cashier's register; the server re-prices the order and records who approved
   it. An order comped to $0.00 closes without payment.
@@ -62,8 +82,10 @@ A guided checkout for the cashier at the window: **Sign in → Items → Review 
   `POST /orders`, `POST /orders/{id}/payments`).
 - **Cash**: one-tap amounts (Exact, next dollar, next $5/$10/$20, bills); the server checks the
   amount and returns the change due.
-- **Card**: a declined card keeps the order open with a clear message; the cashier retries or
-  switches to cash.
+- **Card**: an on-screen reader goes waiting → reading → authorizing → approved/declined, like the
+  terminal on the counter. Keyed cards are checked (Luhn, expiry, CVC length, brand) and tokenized in the
+  browser, so **a card number never reaches the API**; only a token does, the way a real terminal or a
+  processor's hosted fields work. A decline keeps the order open; the cashier tries another card or cash.
 - **Safe retries**: each attempt carries an `Idempotency-Key`, reused only after a network failure,
   so tapping again can't create a second order or charge twice.
 
@@ -79,8 +101,8 @@ needs the `X-Kiosk-Register: 1` header (CSRF protection).
 | POST | `/auth/logout`, GET `/auth/me` | ✅ |
 | GET | `/locations`, `/locations/{id}` | ✅ includes the location's tax rate |
 | GET | `/locations/{id}/menu-items` | ✅ filter by `available`, `category` |
-| POST | `/orders/quote` | ✅ server-side pricing, nothing stored |
-| POST | `/orders` | ✅ `Idempotency-Key`; snapshots prices and tax rate |
+| POST | `/orders/quote` | ✅ server-side pricing incl. discount, nothing stored |
+| POST | `/orders` | ✅ `Idempotency-Key`; snapshots prices, discount and tax rate |
 | GET | `/orders/{id}` | ✅ returns `ETag` |
 | POST | `/orders/{id}/comps` | ✅ manager ID + PIN; item or whole order; tax re-computed |
 | POST | `/orders/{id}/payments` | ✅ `Idempotency-Key` + `If-Match`; cash change, mock card |
@@ -108,9 +130,14 @@ needs the `X-Kiosk-Register: 1` header (CSRF protection).
 - **PINs** are bcrypt hashes. The slow comparison runs without holding a row lock, and failed attempts are
   counted with one atomic `UPDATE`, so 500 registers signing in at shift change never queue on a lock and
   parallel wrong guesses are all counted.
+- **Discounts before tax, comps after discounts.** Tax is charged on subtotal − discount − comps. The
+  order keeps the discount's label and rate as a snapshot, so editing or expiring a code never changes
+  past orders. Capped codes count redemptions with one conditional `UPDATE ... WHERE times_redeemed <
+  max_redemptions`, so two registers can't both take the last use; uncapped codes write nothing extra,
+  keeping the hot path free of a shared counter row.
 - **Comps are audit records.** `order_comp` rows are insert-only, with the approving manager, the
   signed-in staff member who asked, reason and amount. The database allows one comp per item and one
-  whole-order comp per order, and checks `total = subtotal - comps + tax`.
+  whole-order comp per order, and checks `total = subtotal - discount - comps + tax`.
 - **One pricing path.** `PricingService` is the only code that computes prices and tax; the quote and
   order endpoints both call it, so a quote can never disagree with the order it becomes.
 - **Cached reads, authoritative writes.** Menu, location and tax snapshots are cached in Redis for
@@ -139,6 +166,7 @@ src/main/java/.../kioskpos/
   auth/         session cookie signing, auth + CSRF filter, current staff
   staff/        cashiers and managers, PIN checks with lockout
   comp/         manager-approved comps
+  discount/     promo codes and the employee discount
   pricing/      PricingService: prices, line totals, tax, totals
   order/        orders + order lines, create with idempotency
   payment/      payments, mock card processor, cash change
@@ -146,7 +174,7 @@ src/main/java/.../kioskpos/
   tax/          tax rates, TaxCalculator
   location/ menu/  JPA entities + repositories
   common/       errors (problem+json), mappers, pagination cursor
-src/main/resources/db/migration/   Flyway schema (V1 init, V2 tax rates, V3 idempotency)
+src/main/resources/db/migration/   Flyway schema (V1 init … V4 staff + comps, V5 discounts)
 src/main/resources/db/seed/        demo data, local profile only
 web/                               cashier register (React + Mantine, Vite) + gateway image (nginx)
 compose.yaml, Dockerfile           the whole stack in one file

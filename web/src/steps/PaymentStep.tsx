@@ -1,18 +1,13 @@
-import { Alert, Box, Button, Group, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Title, UnstyledButton } from '@mantine/core';
-import { IconAlertTriangle, IconCash, IconCreditCard, IconGift } from '@tabler/icons-react';
+import { Alert, Box, Button, Group, NumberInput, Paper, SimpleGrid, Stack, Text, Title, UnstyledButton } from '@mantine/core';
+import { IconCash, IconCreditCard, IconGift } from '@tabler/icons-react';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { ApiError, api, describeError, type CreatePaymentRequest, type Order, type Payment } from '../api/client';
+import { CardTerminal, type ChargeOutcome } from '../components/CardTerminal';
 import { CompDialog } from '../components/CompDialog';
 import { OrderSummary } from '../components/OrderSummary';
 import { formatCents, formatMoney, quickCashAmounts } from '../money';
 
 type Tender = 'CARD' | 'CASH';
-
-/** Stand-ins for a physical card reader; the API's mock processor approves or declines by token. */
-const DEMO_CARDS = [
-  { value: 'tok_visa_4242', label: 'Visa ending 4242 (approves)' },
-  { value: 'tok_decline_insufficient_funds_0002', label: 'Card ending 0002 (declines)' },
-];
 
 interface Props {
   order: Order;
@@ -26,48 +21,55 @@ interface Props {
 export function PaymentStep({ order, onPaid, onOrderChange, onCompedInFull }: Props) {
   const [compOpen, setCompOpen] = useState(false);
   const [tender, setTender] = useState<Tender>('CARD');
-  const [card, setCard] = useState<string>(DEMO_CARDS[0].value);
   const [cash, setCash] = useState<string | number>('');
   const [busy, setBusy] = useState(false);
+  const [terminalActive, setTerminalActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [decline, setDecline] = useState<string | null>(null);
-  // One key per payment attempt. Kept across a network failure so tapping again is a safe
-  // retry; replaced once the server has answered.
-  const attemptKey = useRef<string | null>(null);
+  // One key per payment attempt. Kept across a network failure so sending the same payment
+  // again is a safe retry; replaced once the server has answered or the payment changes.
+  const attempt = useRef<{ key: string; body: string } | null>(null);
+  const locked = busy || terminalActive;
 
   const totalCents = order.total.amountCents;
   const quickAmounts = useMemo(() => quickCashAmounts(totalCents), [totalCents]);
   const tenderedCents = typeof cash === 'number' ? Math.round(cash * 100) : NaN;
   const enoughCash = Number.isFinite(tenderedCents) && tenderedCents >= totalCents;
 
-  async function pay(body: CreatePaymentRequest) {
-    attemptKey.current ??= crypto.randomUUID();
+  async function submit(body: CreatePaymentRequest): Promise<ChargeOutcome> {
+    const bodyJson = JSON.stringify(body);
+    if (attempt.current?.body !== bodyJson) {
+      attempt.current = { key: crypto.randomUUID(), body: bodyJson };
+    }
     setBusy(true);
     setError(null);
     try {
-      const payment = await api.pay(order, body, attemptKey.current);
-      onPaid(payment);
+      return { kind: 'approved', payment: await api.pay(order, body, attempt.current.key) };
     } catch (e) {
-      if (e instanceof ApiError) {
-        attemptKey.current = null;
-        if (e.status === 402) {
-          const code = (e.problem as unknown as { declineCode?: string } | null)?.declineCode;
-          setDecline(code ? code.replaceAll('_', ' ') : 'card declined');
-        } else {
-          setError(describeError(e));
-        }
-      } else {
-        setError(`${describeError(e)} Tapping again is safe: the guest won't be charged twice.`);
+      if (!(e instanceof ApiError)) {
+        setError(`${describeError(e)} Trying the same card again is safe: the guest won't be charged twice.`);
+        return { kind: 'failed' };
       }
+      attempt.current = null;
+      if (e.status === 402) {
+        const code = (e.problem as unknown as { declineCode?: string } | null)?.declineCode;
+        return { kind: 'declined', reason: code ? code.replaceAll('_', ' ') : 'card declined' };
+      }
+      setError(describeError(e));
+      return { kind: 'failed' };
     } finally {
       setBusy(false);
     }
   }
 
+  async function payCash() {
+    const outcome = await submit({ tenderType: 'CASH', cashTenderedCents: tenderedCents });
+    if (outcome.kind === 'approved') onPaid(outcome.payment);
+  }
+
   function comped(updated: Order) {
     setCompOpen(false);
     // The order's total and version changed: start the payment over from the new numbers.
-    attemptKey.current = null;
+    attempt.current = null;
     setCash('');
     setError(null);
     if (updated.status === 'PAID') {
@@ -90,28 +92,24 @@ export function PaymentStep({ order, onPaid, onOrderChange, onCompedInFull }: Pr
             </Title>
           </div>
           <Button variant="light" color="orange" size="md" leftSection={<IconGift size={18} />}
-                  onClick={() => setCompOpen(true)} disabled={busy}>
+                  onClick={() => setCompOpen(true)} disabled={locked}>
             Comp…
           </Button>
         </Group>
         <CompDialog order={order} opened={compOpen} onClose={() => setCompOpen(false)} onComped={comped} />
 
-        {decline && (
-          <Alert color="orange" variant="light" icon={<IconAlertTriangle />} title={`Card declined: ${decline}`}>
-            The guest was not charged. Try another card, or switch to cash.
-          </Alert>
-        )}
-
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md" role="radiogroup" aria-label="Payment method">
           <TenderOption
             selected={tender === 'CARD'}
+            disabled={locked}
             onSelect={() => setTender('CARD')}
             icon={<IconCreditCard size={40} stroke={1.6} />}
             label="Card"
-            hint="Tap, insert or swipe"
+            hint="Tap, insert, swipe or key in"
           />
           <TenderOption
             selected={tender === 'CASH'}
+            disabled={locked}
             onSelect={() => setTender('CASH')}
             icon={<IconCash size={40} stroke={1.6} />}
             label="Cash"
@@ -120,26 +118,13 @@ export function PaymentStep({ order, onPaid, onOrderChange, onCompedInFull }: Pr
         </SimpleGrid>
 
         {tender === 'CARD' ? (
-          <Paper withBorder p="lg" radius="md" bg="gray.0">
-            <Stack gap="md">
-              <div>
-                <Text fw={700} size="xl">Waiting for card</Text>
-                <Text c="dimmed">The order stays open until a payment is approved.</Text>
-              </div>
-              <Select
-                label="Demo card reader"
-                description="Stands in for the physical reader in this demo."
-                data={DEMO_CARDS}
-                value={card}
-                onChange={(v: string | null) => v && setCard(v)}
-                allowDeselect={false}
-                size="md"
-              />
-              <Button size="xl" loading={busy} onClick={() => pay({ tenderType: 'CARD', cardToken: card })}>
-                Charge {formatMoney(order.total)}
-              </Button>
-            </Stack>
-          </Paper>
+          <CardTerminal
+            amount={order.total}
+            disabled={busy}
+            charge={(cardToken) => submit({ tenderType: 'CARD', cardToken })}
+            onApproved={onPaid}
+            onActiveChange={setTerminalActive}
+          />
         ) : (
           <Paper withBorder p="lg" radius="md">
             <Stack gap="md">
@@ -176,7 +161,7 @@ export function PaymentStep({ order, onPaid, onOrderChange, onCompedInFull }: Pr
                 size="xl"
                 loading={busy}
                 disabled={!enoughCash}
-                onClick={() => pay({ tenderType: 'CASH', cashTenderedCents: tenderedCents })}
+                onClick={payCash}
               >
                 Complete cash sale
               </Button>
@@ -200,6 +185,7 @@ export function PaymentStep({ order, onPaid, onOrderChange, onCompedInFull }: Pr
             comped: l.comped,
           }))}
           subtotal={order.subtotal}
+          discount={order.discount}
           compTotal={order.compTotal}
           tax={order.tax}
           total={order.total}
@@ -210,8 +196,9 @@ export function PaymentStep({ order, onPaid, onOrderChange, onCompedInFull }: Pr
   );
 }
 
-function TenderOption({ selected, onSelect, icon, label, hint }: {
+function TenderOption({ selected, disabled, onSelect, icon, label, hint }: {
   selected: boolean;
+  disabled?: boolean;
   onSelect: () => void;
   icon: ReactNode;
   label: string;
@@ -222,7 +209,9 @@ function TenderOption({ selected, onSelect, icon, label, hint }: {
       role="radio"
       aria-checked={selected}
       onClick={onSelect}
+      disabled={disabled}
       style={{
+        opacity: disabled && !selected ? 0.5 : 1,
         minHeight: 112,
         padding: '20px 24px',
         display: 'flex',

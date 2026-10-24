@@ -337,7 +337,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: One or more items are unavailable or belong to another location.
+          description: An item is unavailable or sold elsewhere, or the discount doesn't apply (expired code, minimum not met, redemption limit reached, unknown employee ID).
           content:
             application/problem+json:
               schema:
@@ -429,7 +429,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: An item is sold out or not sold at this location, or the location is closed.
+          description: An item is sold out or not sold here, the location is closed, or the discount doesn't apply (`DISCOUNT_NOT_APPLICABLE`, with the reason in `detail`).
           content:
             application/problem+json:
               schema:
@@ -1021,6 +1021,50 @@ components:
           maxItems: 30
           items:
             $ref: '#/components/schemas/OrderLineRequest'
+        discount:
+          $ref: '#/components/schemas/DiscountRequest'
+
+    DiscountRequest:
+      type: object
+      description: |
+        Exactly one of `code` (a promo code) or `employeeId` (the employee discount for a
+        staff member's own purchase). One discount per order; the server works out the
+        amount and checks the code's dates, minimum and redemption limit.
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Za-z0-9]{3,20}$'
+          example: PARKFAN10
+        employeeId:
+          type: string
+          pattern: '^[A-Z0-9-]{2,16}$'
+          example: C2001
+
+    DiscountKind:
+      type: string
+      enum: [CODE, EMPLOYEE]
+
+    AppliedDiscount:
+      type: object
+      description: A discount the server accepted and priced.
+      required: [kind, label, amount]
+      properties:
+        kind:
+          $ref: '#/components/schemas/DiscountKind'
+        code:
+          type: string
+          description: The promo code, for `CODE` discounts.
+        employee:
+          $ref: '#/components/schemas/StaffRef'
+        label:
+          type: string
+          example: PARKFAN10 · 10% off
+        rateBps:
+          type: integer
+          description: For percentage discounts, in basis points (1000 = 10%).
+        amount:
+          $ref: '#/components/schemas/Money'
 
     QuoteLine:
       type: object
@@ -1045,8 +1089,8 @@ components:
 
     OrderQuote:
       type: object
-      description: Server-computed prices for a basket. Not stored.
-      required: [locationId, lines, subtotal, taxRate, tax, total, pricedAt]
+      description: Server-computed prices for a basket. Not stored. Tax is on the subtotal after the discount.
+      required: [locationId, lines, subtotal, discountTotal, taxRate, tax, total, pricedAt]
       properties:
         locationId:
           type: string
@@ -1056,6 +1100,10 @@ components:
           items:
             $ref: '#/components/schemas/QuoteLine'
         subtotal:
+          $ref: '#/components/schemas/Money'
+        discount:
+          $ref: '#/components/schemas/AppliedDiscount'
+        discountTotal:
           $ref: '#/components/schemas/Money'
         taxRate:
           $ref: '#/components/schemas/TaxRate'
@@ -1087,6 +1135,8 @@ components:
           maxItems: 30
           items:
             $ref: '#/components/schemas/OrderLineRequest'
+        discount:
+          $ref: '#/components/schemas/DiscountRequest'
 
     OrderLineRequest:
       type: object
@@ -1135,7 +1185,7 @@ components:
 
     Order:
       type: object
-      required: [id, orderNumber, locationId, channel, status, lines, subtotal, compTotal, comps, taxRateBps, tax, total, version, createdAt, updatedAt]
+      required: [id, orderNumber, locationId, channel, status, lines, subtotal, discountTotal, compTotal, comps, taxRateBps, tax, total, version, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -1158,6 +1208,10 @@ components:
           items:
             $ref: '#/components/schemas/OrderLine'
         subtotal:
+          $ref: '#/components/schemas/Money'
+        discount:
+          $ref: '#/components/schemas/AppliedDiscount'
+        discountTotal:
           $ref: '#/components/schemas/Money'
         compTotal:
           $ref: '#/components/schemas/Money'
@@ -1292,6 +1346,10 @@ components:
       type: string
       enum: [CARD, CASH]
 
+    CardBrand:
+      type: string
+      enum: [VISA, MASTERCARD, AMEX, DISCOVER]
+
     CreatePaymentRequest:
       type: object
       description: |
@@ -1364,6 +1422,8 @@ components:
         cardLast4:
           type: [string, 'null']
           pattern: '^[0-9]{4}$'
+        cardBrand:
+          $ref: '#/components/schemas/CardBrand'
         processorReference:
           type: [string, 'null']
           description: Reference from the (mock) processor.
@@ -1441,6 +1501,7 @@ components:
             - DUPLICATE_SKU
             - ITEM_UNAVAILABLE
             - LOCATION_CLOSED
+            - DISCOUNT_NOT_APPLICABLE
             - INVALID_CREDENTIALS
             - ACCOUNT_LOCKED
             - CSRF_HEADER_MISSING

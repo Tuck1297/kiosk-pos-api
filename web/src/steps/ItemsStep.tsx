@@ -103,6 +103,7 @@ export function ItemsStep({ menu, cart, quote, onAdd, onChangeQuantity, onNext }
           title="Current order"
           lines={lines}
           subtotal={priced?.subtotal}
+          discount={priced?.discount}
           tax={priced?.tax}
           total={priced?.total}
           taxRateBps={priced?.taxRate.rateBps}

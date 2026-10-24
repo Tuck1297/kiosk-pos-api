@@ -1,6 +1,7 @@
 // 500 cashier registers ringing up sales, exactly as the register UI does:
 //
 //   sign in once (HttpOnly session cookie) → load menu → add items (each add re-prices the cart: POST /orders/quote)
+//   → ~10% apply promo code PARKFAN10 at review
 //   → create order (Idempotency-Key) → pay (cash, card, or a declined card then cash)
 //
 // Run with the stack up:  docker compose --profile loadtest run --rm k6
@@ -124,11 +125,18 @@ export default function () {
     check(quote, { 'quote 200': (r) => r.status === 200 });
   }
 
-  // Review with the guest, then create the order.
+  // Review with the guest; about one sale in ten applies a promo code (re-priced on the server).
   think(1, 2.5);
+  const discount = Math.random() < 0.1 ? { code: 'PARKFAN10' } : undefined;
+  if (discount) {
+    quote = post('/orders/quote', { locationId: LOCATION, lines: cart, discount }, 'quote');
+    serverMs += quote.timings.duration;
+    signInAgainOn401(quote);
+    check(quote, { 'discounted quote 200': (r) => r.status === 200 && r.json('discountTotal.amountCents') > 0 });
+  }
   const order = post(
     '/orders',
-    { locationId: LOCATION, channel: 'COUNTER', guestName: `Guest ${__VU}`, lines: cart },
+    { locationId: LOCATION, channel: 'COUNTER', guestName: `Guest ${__VU}`, lines: cart, discount },
     'create_order',
     { 'Idempotency-Key': uuid() },
   );

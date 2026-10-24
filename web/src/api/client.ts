@@ -17,6 +17,8 @@ export type Problem = S['Problem'];
 export type Staff = S['Staff'];
 export type CompReason = S['CompReason'];
 export type CompRequest = S['CompRequest'];
+export type DiscountRequest = S['DiscountRequest'];
+export type AppliedDiscount = S['AppliedDiscount'];
 
 /** The API answered with an error (problem+json). */
 export class ApiError extends Error {

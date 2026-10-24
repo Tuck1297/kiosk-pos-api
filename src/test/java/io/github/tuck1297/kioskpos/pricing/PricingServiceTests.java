@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.tuck1297.kioskpos.api.model.OrderLineRequest;
 import io.github.tuck1297.kioskpos.common.ApiException;
+import io.github.tuck1297.kioskpos.discount.DiscountRule;
+import java.util.Optional;
 import io.github.tuck1297.kioskpos.menu.MenuSnapshot;
 import io.github.tuck1297.kioskpos.menu.MenuSnapshot.ItemSnapshot;
 import io.github.tuck1297.kioskpos.menu.MenuSnapshot.TaxSnapshot;
@@ -44,6 +46,37 @@ class PricingServiceTests {
         assertThat(p.totalCents()).isEqualTo(2235);
         assertThat(p.lines().get(1).note()).isEqualTo("no ice");
         assertThat(p.currency()).isEqualTo("USD");
+    }
+
+    @Test
+    void discountComesOffBeforeTax() {
+        DiscountRule tenPercent = new DiscountRule(DiscountRule.CODE, UUID.randomUUID(), "PARKFAN10", null, null,
+                "PARKFAN10 · 10% off", 1000, null, 0, false);
+        DiscountRule fiveOffOverTwenty = new DiscountRule(DiscountRule.CODE, UUID.randomUUID(), "WELCOME5", null, null,
+                "WELCOME5 · $5.00 off", null, 500L, 2000, false);
+        List<OrderLineRequest> basket = List.of(line(PRETZEL, 2, null), line(LEMONADE, 1, null));
+
+        PricingService.PricedOrder pct = pricing.price(menu(true), basket, Optional.of(tenPercent));
+        assertThat(pct.discountCents()).isEqualTo(210);
+        assertThat(pct.taxCents()).isEqualTo(123);
+        assertThat(pct.totalCents()).isEqualTo(2012);
+
+        PricingService.PricedOrder amt = pricing.price(menu(true), basket, Optional.of(fiveOffOverTwenty));
+        assertThat(amt.discountCents()).isEqualTo(500);
+        assertThat(amt.totalCents()).isEqualTo(1599 + 104);
+
+        assertThatThrownBy(() -> pricing.price(menu(true), List.of(line(LEMONADE, 1, null)), Optional.of(fiveOffOverTwenty)))
+                .isInstanceOf(ApiException.class).hasMessageContaining("$20.00");
+    }
+
+    @Test
+    void discountNeverExceedsTheSubtotal() {
+        DiscountRule bigAmount = new DiscountRule(DiscountRule.CODE, UUID.randomUUID(), "BIG", null, null,
+                "BIG", null, 100_000L, 0, false);
+
+        PricingService.PricedOrder p = pricing.price(menu(true), List.of(line(LEMONADE, 1, null)), Optional.of(bigAmount));
+        assertThat(p.discountCents()).isEqualTo(599);
+        assertThat(p.totalCents()).isZero();
     }
 
     @Test

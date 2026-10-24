@@ -80,6 +80,10 @@ public class ApiException extends RuntimeException {
                 .with("errors", List.of(Map.of("field", field, "message", message)));
     }
 
+    public static ApiException discountNotApplicable(String detail) {
+        return new ApiException(HttpStatus.CONFLICT, "DISCOUNT_NOT_APPLICABLE", "Discount not applied", detail);
+    }
+
     public static ApiException invalidCredentials() {
         return new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Sign-in failed",
                 "Employee ID or PIN not recognized.");

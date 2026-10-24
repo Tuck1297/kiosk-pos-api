@@ -15,5 +15,6 @@ public class QuoteRequestGuard implements RequestGuard<QuoteRequest> {
     @Override
     public void check(QuoteRequest request, Errors errors) {
         OrderLineRules.check(request.getLines(), errors);
+        DiscountRules.check(request.getDiscount(), errors);
     }
 }

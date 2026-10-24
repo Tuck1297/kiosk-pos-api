@@ -137,6 +137,7 @@ class CheckoutFlowTests extends ApiTestSupport {
                 "{\"tenderType\":\"CARD\",\"cardToken\":\"tok_visa_4242\"}", UUID.randomUUID().toString(), etag);
         assertThat(approved.statusCode()).as(approved.body()).isEqualTo(201);
         assertThat(JsonPath.<String>read(approved.body(), "$.cardLast4")).isEqualTo("4242");
+        assertThat(JsonPath.<String>read(approved.body(), "$.cardBrand")).isEqualTo("VISA");
 
         HttpResponse<String> history = get("/v1/orders/" + orderId + "/payments");
         assertThat(JsonPath.<Integer>read(history.body(), "$.items.length()")).isEqualTo(2);

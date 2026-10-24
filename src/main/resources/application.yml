@@ -40,6 +40,9 @@ spring:
       key-prefix: "kiosk:v1:"
 
 kiosk:
+  discounts:
+    # Employee discount, in basis points (2000 = 20%), applied by employee ID.
+    employee-rate-bps: ${EMPLOYEE_DISCOUNT_BPS:2000}
   auth:
     # HMAC key that signs session cookies. Required, at least 32 characters, and the
     # same on every API replica. Rotating it signs everyone out.

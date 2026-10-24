@@ -96,6 +96,10 @@ the single primary is protected:
   request to finish and replays its result. No second order, no double charge, and a unique index on
   captured payments backs this up in the database itself.
 - **Optimistic locking** (`version` / `If-Match`) instead of long row locks for order updates.
+- **No shared counter on the hot path.** A promo code used at hundreds of registers would serialize
+  every sale if each one bumped a counter row. Only codes with a redemption cap are counted (one
+  conditional `UPDATE`, which is also what enforces the cap); uncapped codes and the employee discount
+  write nothing beyond the order itself. The load test applies `PARKFAN10` to about 10% of sales.
 - **Bounded table growth.** Expired idempotency keys (24 h) are deleted every 10 minutes in batches of
   5,000 with `SKIP LOCKED`, so every replica can run the job without contending.
 - **Integer money and database constraints**, so concurrent writers can't produce inconsistent totals.

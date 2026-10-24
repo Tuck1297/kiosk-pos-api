@@ -1,6 +1,7 @@
 package io.github.tuck1297.kioskpos.order;
 
 import io.github.tuck1297.kioskpos.comp.OrderCompEntity;
+import io.github.tuck1297.kioskpos.discount.DiscountCodeEntity;
 import io.github.tuck1297.kioskpos.staff.StaffEntity;
 import io.github.tuck1297.kioskpos.tax.TaxCalculator;
 import jakarta.persistence.CascadeType;
@@ -64,6 +65,27 @@ public class OrderEntity {
 
     @Column(name = "comp_cents", nullable = false)
     private long compCents;
+
+    /** Discount snapshot, set once at creation: later changes to a code never alter it. */
+    @Column(name = "discount_cents", nullable = false, updatable = false)
+    private long discountCents;
+
+    @Column(name = "discount_kind", updatable = false)
+    private String discountKind;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "discount_code_id", updatable = false)
+    private DiscountCodeEntity discountCode;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "discount_employee_id", updatable = false)
+    private StaffEntity discountEmployee;
+
+    @Column(name = "discount_label", updatable = false)
+    private String discountLabel;
+
+    @Column(name = "discount_rate_bps", updatable = false)
+    private Integer discountRateBps;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by", updatable = false)
@@ -136,20 +158,41 @@ public class OrderEntity {
         return comps.stream().anyMatch(OrderCompEntity::isWholeOrder);
     }
 
-    /** What a whole-order comp would take off: everything not already comped. */
-    public long uncompedSubtotalCents() {
-        return subtotalCents - compCents;
+    /** Records the discount the order was priced with. Only before the order is first saved. */
+    public void setDiscount(String kind, DiscountCodeEntity code, StaffEntity employee, String label, Integer rateBps,
+                            long cents) {
+        this.discountKind = kind;
+        this.discountCode = code;
+        this.discountEmployee = employee;
+        this.discountLabel = label;
+        this.discountRateBps = rateBps;
+        this.discountCents = cents;
+    }
+
+    /** What a whole-order comp would take off: everything still owed before tax. */
+    public long uncompedNetCents() {
+        return subtotalCents - discountCents - compCents;
     }
 
     /**
-     * Records a comp and re-prices: tax is charged only on what's left after comps, using
-     * the rate this order was priced with. An order comped down to $0.00 has nothing left
-     * to collect, so it is closed as PAID.
+     * What comping one line takes off: the line's price less its share of the order discount
+     * (so a 10% discount followed by comping an item doesn't refund more than the guest paid
+     * for it), and never more than what's left.
+     */
+    public long lineCompAmountCents(OrderLineEntity line) {
+        long discountShare = subtotalCents == 0 ? 0 : discountCents * line.getLineTotalCents() / subtotalCents;
+        return Math.min(line.getLineTotalCents() - discountShare, uncompedNetCents());
+    }
+
+    /**
+     * Records a comp and re-prices: tax is charged only on what's left after the discount and
+     * comps, using the rate this order was priced with. An order comped down to $0.00 has
+     * nothing left to collect, so it is closed as PAID.
      */
     public void applyComp(OrderCompEntity comp, OffsetDateTime now) {
         comps.add(comp);
         compCents = Math.addExact(compCents, comp.getAmountCents());
-        long taxable = subtotalCents - compCents;
+        long taxable = subtotalCents - discountCents - compCents;
         taxCents = TaxCalculator.taxCents(taxable, taxRateBps);
         totalCents = taxable + taxCents;
         if (totalCents == 0) {
@@ -160,6 +203,30 @@ public class OrderEntity {
 
     public long getCompCents() {
         return compCents;
+    }
+
+    public long getDiscountCents() {
+        return discountCents;
+    }
+
+    public String getDiscountKind() {
+        return discountKind;
+    }
+
+    public DiscountCodeEntity getDiscountCode() {
+        return discountCode;
+    }
+
+    public StaffEntity getDiscountEmployee() {
+        return discountEmployee;
+    }
+
+    public String getDiscountLabel() {
+        return discountLabel;
+    }
+
+    public Integer getDiscountRateBps() {
+        return discountRateBps;
     }
 
     public StaffEntity getCreatedBy() {

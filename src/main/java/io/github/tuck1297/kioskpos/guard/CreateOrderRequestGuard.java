@@ -15,5 +15,6 @@ public class CreateOrderRequestGuard implements RequestGuard<CreateOrderRequest>
     @Override
     public void check(CreateOrderRequest request, Errors errors) {
         OrderLineRules.check(request.getLines(), errors);
+        DiscountRules.check(request.getDiscount(), errors);
     }
 }

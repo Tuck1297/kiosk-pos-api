@@ -42,6 +42,9 @@ public class PaymentEntity {
     @Column(name = "card_last4", length = 4, updatable = false)
     private String cardLast4;
 
+    @Column(name = "card_brand", updatable = false)
+    private String cardBrand;
+
     @Column(name = "processor_reference", updatable = false)
     private String processorReference;
 
@@ -78,17 +81,19 @@ public class PaymentEntity {
         return p;
     }
 
-    public static PaymentEntity cardCaptured(UUID orderId, long amountCents, String currency, String last4,
-                                             String reference, OffsetDateTime now) {
+    public static PaymentEntity cardCaptured(UUID orderId, long amountCents, String currency, String brand,
+                                             String last4, String reference, OffsetDateTime now) {
         PaymentEntity p = new PaymentEntity(orderId, "CARD", CAPTURED, amountCents, currency, now);
+        p.cardBrand = brand;
         p.cardLast4 = last4;
         p.processorReference = reference;
         return p;
     }
 
-    public static PaymentEntity cardDeclined(UUID orderId, long amountCents, String currency, String last4,
-                                             String declineCode, OffsetDateTime now) {
+    public static PaymentEntity cardDeclined(UUID orderId, long amountCents, String currency, String brand,
+                                             String last4, String declineCode, OffsetDateTime now) {
         PaymentEntity p = new PaymentEntity(orderId, "CARD", DECLINED, amountCents, currency, now);
+        p.cardBrand = brand;
         p.cardLast4 = last4;
         p.declineCode = declineCode;
         return p;
@@ -128,6 +133,10 @@ public class PaymentEntity {
 
     public Long getChangeDueCents() {
         return changeDueCents;
+    }
+
+    public String getCardBrand() {
+        return cardBrand;
     }
 
     public String getCardLast4() {

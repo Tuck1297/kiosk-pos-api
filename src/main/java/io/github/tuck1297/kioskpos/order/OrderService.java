@@ -3,7 +3,13 @@ package io.github.tuck1297.kioskpos.order;
 import static io.github.tuck1297.kioskpos.common.ApiMappers.blankToNull;
 import static io.github.tuck1297.kioskpos.common.ApiMappers.money;
 
+import io.github.tuck1297.kioskpos.api.model.AppliedDiscount;
 import io.github.tuck1297.kioskpos.api.model.Comp;
+import io.github.tuck1297.kioskpos.api.model.DiscountKind;
+import io.github.tuck1297.kioskpos.api.model.DiscountRequest;
+import io.github.tuck1297.kioskpos.discount.DiscountCodeEntity;
+import io.github.tuck1297.kioskpos.discount.DiscountResolver;
+import io.github.tuck1297.kioskpos.discount.DiscountRule;
 import io.github.tuck1297.kioskpos.api.model.CompReason;
 import io.github.tuck1297.kioskpos.api.model.CreateOrderRequest;
 import io.github.tuck1297.kioskpos.common.ApiMappers;
@@ -37,15 +43,17 @@ public class OrderService {
 
     private final MenuCatalog catalog;
     private final PricingService pricing;
+    private final DiscountResolver discounts;
     private final OrderRepository orders;
     private final IdempotencyStore idempotency;
     private final JdbcTemplate jdbc;
     private final EntityManager em;
 
-    public OrderService(MenuCatalog catalog, PricingService pricing, OrderRepository orders,
-                        IdempotencyStore idempotency, JdbcTemplate jdbc, EntityManager em) {
+    public OrderService(MenuCatalog catalog, PricingService pricing, DiscountResolver discounts,
+                        OrderRepository orders, IdempotencyStore idempotency, JdbcTemplate jdbc, EntityManager em) {
         this.catalog = catalog;
         this.pricing = pricing;
+        this.discounts = discounts;
         this.orders = orders;
         this.idempotency = idempotency;
         this.jdbc = jdbc;
@@ -58,15 +66,19 @@ public class OrderService {
      */
     @Transactional
     public Order create(UUID idempotencyKey, CreateOrderRequest request, UUID staffId) {
+        DiscountRequest discountRequest = request.getDiscount();
         String fingerprint = RequestFingerprint.of(CREATE_SCOPE, request.getLocationId(), request.getChannel(),
-                blankToNull(request.getGuestName()), linesFingerprint(request.getLines()));
+                blankToNull(request.getGuestName()), linesFingerprint(request.getLines()),
+                discountRequest == null ? null : discountRequest.getCode() + "/" + discountRequest.getEmployeeId());
         Optional<IdempotencyStore.StoredResult> earlier = idempotency.claim(CREATE_SCOPE, idempotencyKey, fingerprint);
         if (earlier.isPresent()) {
             return toApi(load(earlier.get().resourceId()));
         }
 
         // Price from the database, never the cache: this is the write that takes money.
-        PricedOrder priced = pricing.price(catalog.fresh(request.getLocationId()), request.getLines());
+        Optional<DiscountRule> discount = discounts.resolve(discountRequest);
+        PricedOrder priced = pricing.price(catalog.fresh(request.getLocationId()), request.getLines(), discount);
+        discount.ifPresent(discounts::redeem);
         Integer orderNumber = jdbc.queryForObject("""
                 UPDATE location SET next_order_number = next_order_number + 1
                 WHERE id = ?
@@ -77,6 +89,10 @@ public class OrderService {
                 request.getChannel().getValue(), blankToNull(request.getGuestName()), priced.currency(),
                 priced.subtotalCents(), priced.taxRate().rateBps(), priced.taxCents(), priced.totalCents(),
                 staffId == null ? null : em.getReference(StaffEntity.class, staffId), now);
+        discount.ifPresent(d -> order.setDiscount(d.kind(),
+                d.codeId() == null ? null : em.getReference(DiscountCodeEntity.class, d.codeId()),
+                d.employeeId() == null ? null : em.getReference(StaffEntity.class, d.employeeId()),
+                d.label(), d.percentBps(), priced.discountCents()));
         short lineNo = 1;
         for (PricedLine line : priced.lines()) {
             order.addLine(new OrderLineEntity(UUID.randomUUID(), lineNo++, line.item().id(), line.item().sku(),
@@ -133,6 +149,14 @@ public class OrderService {
                 .status(OrderStatus.fromValue(o.getStatus()))
                 .lines(lines)
                 .subtotal(money(o.getSubtotalCents(), currency))
+                .discount(o.getDiscountKind() == null ? null : new AppliedDiscount()
+                        .kind(DiscountKind.fromValue(o.getDiscountKind()))
+                        .code(o.getDiscountCode() == null ? null : o.getDiscountCode().getCode())
+                        .employee(ApiMappers.staffRef(o.getDiscountEmployee()))
+                        .label(o.getDiscountLabel())
+                        .rateBps(o.getDiscountRateBps())
+                        .amount(money(o.getDiscountCents(), currency)))
+                .discountTotal(money(o.getDiscountCents(), currency))
                 .compTotal(money(o.getCompCents(), currency))
                 .comps(comps)
                 .createdBy(ApiMappers.staffRef(o.getCreatedBy()))
