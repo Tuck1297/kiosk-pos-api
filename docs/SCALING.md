@@ -46,6 +46,24 @@ at about 4x this rate (a sale every ~12 s per register).
 **Reads:** about 45 per second, all from Redis. Without the cache, every quote would be two queries,
 which at a lunch rush is the bulk of database load. With it, Postgres sees only the writes.
 
+## Measured
+
+The CI load test (500 registers, full sales, 2-minute peak) on a GitHub-hosted runner, where the whole
+stack *and* the load generator share one small VM:
+
+| | |
+|---|---|
+| Sales completed | 8,410 (48 sales/s, about 4x the estimate above) |
+| Requests | 46,831 (269/s) |
+| Failed requests | 0.00% |
+| p50 / p95 / p99: menu | 1 / 5 / 15 ms |
+| p50 / p95 / p99: quote | 1 / 5 / 12 ms |
+| p50 / p95 / p99: create order | 6 / 20 / 38 ms |
+| p50 / p95 / p99: pay | 4 / 13 / 23 ms |
+
+Writes are the slowest calls, as expected, and still well under the 600 ms budget. Every push re-runs
+this test, and the numbers are on each CI run's summary page.
+
 ## How writes are kept safe and cheap
 
 Writes stay on one primary on purpose. Splitting money-moving writes across databases (sharding,
